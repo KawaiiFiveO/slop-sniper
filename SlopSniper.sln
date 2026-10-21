@@ -1,0 +1,25 @@
+
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.9.34728.123
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SlopSniper", "SlopSniper\SlopSniper.csproj", "{5B0C7A3E-8F2D-4E61-9C4A-2D7E1B9F6A30}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{5B0C7A3E-8F2D-4E61-9C4A-2D7E1B9F6A30}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5B0C7A3E-8F2D-4E61-9C4A-2D7E1B9F6A30}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5B0C7A3E-8F2D-4E61-9C4A-2D7E1B9F6A30}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5B0C7A3E-8F2D-4E61-9C4A-2D7E1B9F6A30}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {C3E81F4A-6B29-4D0E-A7F5-91B2D84C0E6B}
+	EndGlobalSection
+EndGlobal

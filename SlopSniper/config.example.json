@@ -1,0 +1,13 @@
+{
+  "Token": "PutYourBotTokenHere",
+  "GuildId": 1234567890,
+  "OpenAiApiKey": "PutYourOpenAiKeyHere",
+  "LogChannelId": 1234567890,
+  "ReportMode": "Private",
+  "ExcludedChannelIds": [],
+  "ScanBots": false,
+  "MaxImageMiB": 20,
+  "RequestIntervalSeconds": 3,
+  "QueueCapacity": 100,
+  "CacheHours": 24
+}

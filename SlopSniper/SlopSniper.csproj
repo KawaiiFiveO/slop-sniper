@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Release builds override this from the git tag (see .github/workflows/release.yml). -->
+    <Version>1.0.0</Version>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Discord.Net" Version="3.20.1" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Systemd" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.12" />
+  </ItemGroup>
+
+</Project>
