@@ -1,11 +1,11 @@
 using System.Globalization;
 using Discord;
-using SlopSniper.Provenance;
+using SlopSniper.Services;
 
-namespace SlopSniper.Services;
+namespace SlopSniper.Provenance;
 
 /// <summary>Builds the report embeds and the public reply text.</summary>
-public static class ReportFormatter
+public static class ProvenanceFormatter
 {
     private static readonly Color DetectedColor = new(0xE67E22);
     private static readonly Color ClearColor = new(0x95A5A6);

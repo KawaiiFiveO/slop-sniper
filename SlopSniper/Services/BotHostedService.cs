@@ -6,6 +6,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SlopSniper.Options;
+using SlopSniper.State;
 
 namespace SlopSniper.Services;
 
@@ -14,6 +15,7 @@ public sealed class BotHostedService(
     DiscordSocketClient client,
     InteractionService interactions,
     CommandHandler commandHandler,
+    StateStore state,
     IOptions<BotOptions> options,
     IOptionsMonitor<BotOptions> currentOptions,
     IHostApplicationLifetime lifetime,
@@ -64,18 +66,49 @@ public sealed class BotHostedService(
             return;
         }
 
-        // The manual check is global so it can be installed as a user app; /sniper stays in the home server.
+        // Global commands can be installed as a user app; the rest stay in the home server.
         await interactions.AddModulesGloballyAsync(deleteMissing: true, commandHandler.GlobalModules);
         if (guildId != 0)
         {
             await interactions.AddModulesToGuildAsync(guildId, deleteMissing: true, commandHandler.GuildModules);
-            logger.LogInformation("Registered the manual check globally and /sniper to guild {GuildId}.", guildId);
+            logger.LogInformation("Registered {Global} global and {Guild} guild command modules to guild {GuildId}.",
+                commandHandler.GlobalModules.Length, commandHandler.GuildModules.Length, guildId);
         }
         else
         {
-            logger.LogInformation("Registered the manual check globally. GuildId is 0, so automatic scanning is off.");
+            logger.LogInformation("Registered {Global} global command modules. GuildId is 0, so automatic scanning is off.",
+                commandHandler.GlobalModules.Length);
         }
+        await RemovePreviousGuildCommandsAsync(guildId);
         _commandsRegistered = true;
+    }
+
+    /// <summary>Guild commands stay registered when GuildId changes, so remove them from the previous server.</summary>
+    private async Task RemovePreviousGuildCommandsAsync(ulong guildId)
+    {
+        var previous = await state.ReadAsync(s => s.CommandsGuildId);
+        if (previous == guildId)
+        {
+            return;
+        }
+
+        if (previous != 0)
+        {
+            try
+            {
+                // If the bot has left that server, nobody there can see its commands anyway.
+                if (await client.Rest.GetGuildAsync(previous) is { } guild)
+                {
+                    await guild.BulkOverwriteApplicationCommandsAsync([]);
+                    logger.LogInformation("Removed the commands from the previous guild {GuildId}.", previous);
+                }
+            }
+            catch (Discord.Net.HttpException ex)
+            {
+                logger.LogWarning("Couldn't remove the commands from the previous guild {GuildId}: {Error}", previous, ex.Message);
+            }
+        }
+        await state.UpdateAsync(s => s.CommandsGuildId = guildId);
     }
 
     private Task OnDisconnectedAsync(Exception exception)

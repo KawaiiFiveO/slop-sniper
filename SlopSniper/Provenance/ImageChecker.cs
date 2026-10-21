@@ -3,9 +3,9 @@ using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SlopSniper.Options;
-using SlopSniper.Provenance;
+using SlopSniper.Services;
 
-namespace SlopSniper.Services;
+namespace SlopSniper.Provenance;
 
 public enum CheckStatus
 {
@@ -29,7 +29,7 @@ public sealed record ImageCheck(
 /// <summary>Checks one image: filters it, downloads it, and asks OpenAI unless the result is cached. Every request
 /// goes through one throttle shared by automatic and manual checks.</summary>
 public sealed class ImageChecker(
-    IHttpClientFactory httpClientFactory,
+    ImageDownloader downloader,
     ProvenanceClient provenance,
     ResultCache cache,
     OpenAiStatus status,
@@ -38,8 +38,6 @@ public sealed class ImageChecker(
     IOptionsMonitor<BotOptions> options,
     ILogger<ImageChecker> logger)
 {
-    public const string DownloadClientName = "discord-cdn";
-
     private const int MaxAttempts = 4;
     private static readonly TimeSpan[] TransientBackoff = [TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(2)];
     private static readonly TimeSpan DefaultRateLimitWait = TimeSpan.FromSeconds(30);
@@ -55,7 +53,7 @@ public sealed class ImageChecker(
             return new ImageCheck(source, CheckStatus.Unsupported, Detail: ImageFormats.Describe(source));
         }
 
-        var maxBytes = options.CurrentValue.GetMaxImageBytes();
+        var maxBytes = options.CurrentValue.Provenance.GetMaxImageBytes();
         if (source.Size > maxBytes)
         {
             return new ImageCheck(source, CheckStatus.TooLarge, Detail: FormatMiB(source.Size.Value));
@@ -64,7 +62,7 @@ public sealed class ImageChecker(
         byte[]? image;
         try
         {
-            image = await DownloadAsync(source.Url, maxBytes, cancellationToken);
+            image = await downloader.DownloadAsync(source.Url, maxBytes, cancellationToken);
         }
         catch (Exception ex) when (ex is HttpRequestException or IOException or TaskCanceledException
             && !cancellationToken.IsCancellationRequested)
@@ -75,7 +73,7 @@ public sealed class ImageChecker(
 
         if (image is null)
         {
-            return new ImageCheck(source, CheckStatus.TooLarge, Detail: $"over {options.CurrentValue.MaxImageMiB} MiB");
+            return new ImageCheck(source, CheckStatus.TooLarge, Detail: $"over {options.CurrentValue.Provenance.MaxImageMiB} MiB");
         }
 
         if (ImageFormats.Sniff(image) is not { } mediaType)
@@ -173,7 +171,7 @@ public sealed class ImageChecker(
             }
             finally
             {
-                var earliest = time.GetUtcNow() + TimeSpan.FromSeconds(options.CurrentValue.RequestIntervalSeconds);
+                var earliest = time.GetUtcNow() + TimeSpan.FromSeconds(options.CurrentValue.Provenance.RequestIntervalSeconds);
                 if (earliest > _nextRequestAt)
                 {
                     _nextRequestAt = earliest;
@@ -184,32 +182,6 @@ public sealed class ImageChecker(
         {
             _throttle.Release();
         }
-    }
-
-    /// <returns>The file, or null if it turns out to be larger than <paramref name="maxBytes"/>.</returns>
-    private async Task<byte[]?> DownloadAsync(string url, long maxBytes, CancellationToken cancellationToken)
-    {
-        var http = httpClientFactory.CreateClient(DownloadClientName);
-        using var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        response.EnsureSuccessStatusCode();
-        if (response.Content.Headers.ContentLength > maxBytes)
-        {
-            return null;
-        }
-
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        using var buffer = new MemoryStream();
-        var chunk = new byte[81920];
-        int read;
-        while ((read = await stream.ReadAsync(chunk, cancellationToken)) > 0)
-        {
-            if (buffer.Length + read > maxBytes)
-            {
-                return null;
-            }
-            buffer.Write(chunk, 0, read);
-        }
-        return buffer.ToArray();
     }
 
     public static string FormatMiB(long bytes) =>

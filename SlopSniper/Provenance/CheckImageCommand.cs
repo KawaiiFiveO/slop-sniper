@@ -5,7 +5,7 @@ using Microsoft.Extensions.Options;
 using SlopSniper.Options;
 using SlopSniper.Services;
 
-namespace SlopSniper.Modules;
+namespace SlopSniper.Provenance;
 
 /// <summary>Right-click a message > Apps > Check image provenance. Registered globally, so it also works as a user
 /// app in other servers and DMs. The result is only shown to whoever asked, and covers images that weren't detected
@@ -40,7 +40,7 @@ public sealed class CheckImageCommand(ImageChecker checker, IOptionsMonitor<BotO
 
         // The bot may not be in this server or DM, so the IDs come from the interaction.
         var job = ScanJob.Create(message, Context.Interaction.GuildId, Context.Interaction.ChannelId ?? 0, images);
-        var embed = ReportFormatter.BuildManualEmbed(job, checks, options.CurrentValue.MaxImageMiB, images.Count - checks.Count);
+        var embed = ProvenanceFormatter.BuildManualEmbed(job, checks, options.CurrentValue.Provenance.MaxImageMiB, images.Count - checks.Count);
         await FollowupAsync(embed: embed, ephemeral: true);
     }
 }

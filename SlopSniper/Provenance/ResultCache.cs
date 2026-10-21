@@ -1,9 +1,8 @@
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using SlopSniper.Options;
-using SlopSniper.Provenance;
 
-namespace SlopSniper.Services;
+namespace SlopSniper.Provenance;
 
 /// <summary>Recent results keyed by the file's SHA-256, so a reposted image doesn't cost another API call.</summary>
 public sealed class ResultCache(IOptionsMonitor<BotOptions> options) : IDisposable
@@ -15,12 +14,12 @@ public sealed class ResultCache(IOptionsMonitor<BotOptions> options) : IDisposab
     public bool TryGet(string hash, out ProvenanceCheck? result)
     {
         result = null;
-        return options.CurrentValue.CacheHours > 0 && _cache.TryGetValue(hash, out result) && result is not null;
+        return options.CurrentValue.Provenance.CacheHours > 0 && _cache.TryGetValue(hash, out result) && result is not null;
     }
 
     public void Set(string hash, ProvenanceCheck result)
     {
-        var hours = options.CurrentValue.CacheHours;
+        var hours = options.CurrentValue.Provenance.CacheHours;
         if (hours > 0)
         {
             _cache.Set(hash, result, new MemoryCacheEntryOptions

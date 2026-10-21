@@ -1,7 +1,7 @@
-namespace SlopSniper.Services;
+namespace SlopSniper.Provenance;
 
 /// <summary>Automatic scanning counters since the bot started, shown by /sniper status. Manual checks aren't counted.</summary>
-public sealed class ScanStats(TimeProvider time)
+public sealed class ProvenanceStats(TimeProvider time)
 {
     private long _messagesQueued;
     private long _messagesDropped;

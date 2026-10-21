@@ -3,19 +3,20 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SlopSniper.Options;
+using SlopSniper.Services;
 
-namespace SlopSniper.Services;
+namespace SlopSniper.Provenance;
 
 /// <summary>Holds messages waiting to be checked and works through them one at a time, so a burst of images is
 /// spread out instead of hitting OpenAI's rate limit.</summary>
-public sealed class ScanQueue(
+public sealed class ProvenanceQueue(
     ImageChecker checker,
-    Reporter reporter,
+    ProvenanceReporter reporter,
     OpenAiStatus status,
-    ScanStats stats,
+    ProvenanceStats stats,
     TimeProvider time,
     IOptionsMonitor<BotOptions> options,
-    ILogger<ScanQueue> logger) : BackgroundService
+    ILogger<ProvenanceQueue> logger) : BackgroundService
 {
     private static readonly TimeSpan SuspendedPollInterval = TimeSpan.FromSeconds(30);
 
@@ -27,7 +28,7 @@ public sealed class ScanQueue(
 
     /// <returns>False if the queue is full and the job was dropped.</returns>
     public bool TryEnqueue(ScanJob job) =>
-        _jobs.Reader.Count < options.CurrentValue.QueueCapacity && _jobs.Writer.TryWrite(job);
+        _jobs.Reader.Count < options.CurrentValue.Provenance.QueueCapacity && _jobs.Writer.TryWrite(job);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {

@@ -8,6 +8,9 @@ public sealed class BotState
 {
     /// <summary>Set by /sniper pause so automatic scanning stays off across restarts until resumed.</summary>
     public bool ScanningPaused { get; set; }
+
+    /// <summary>The guild /sniper was last registered to, so its commands can be removed when GuildId changes.</summary>
+    public ulong CommandsGuildId { get; set; }
 }
 
 public sealed class StateStore(ILogger<StateStore> logger)

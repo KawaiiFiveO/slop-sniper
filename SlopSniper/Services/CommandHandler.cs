@@ -3,7 +3,6 @@ using Discord.Interactions;
 using Discord.WebSocket;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using SlopSniper.Modules;
 using SlopSniper.Options;
 
 namespace SlopSniper.Services;
@@ -12,20 +11,31 @@ namespace SlopSniper.Services;
 public sealed class CommandHandler(
     DiscordSocketClient client,
     InteractionService interactions,
+    IEnumerable<CommandModule> modules,
     IServiceProvider services,
     IOptions<BotOptions> options,
     ILogger<CommandHandler> logger)
 {
-    /// <summary>Registered globally: the manual check, which also works as a user app anywhere.</summary>
+    private HashSet<string> _globalCommandNames = [];
+
+    /// <summary>Registered globally, so they also work as a user app anywhere.</summary>
     public ModuleInfo[] GlobalModules { get; private set; } = [];
 
-    /// <summary>Registered to GuildId only: the commands for automatic scanning.</summary>
+    /// <summary>Registered to GuildId only.</summary>
     public ModuleInfo[] GuildModules { get; private set; } = [];
 
     public async Task InitializeAsync()
     {
-        GlobalModules = [await interactions.AddModuleAsync<CheckImageCommand>(services)];
-        GuildModules = [await interactions.AddModuleAsync<SniperCommands>(services)];
+        List<ModuleInfo> global = [];
+        List<ModuleInfo> guild = [];
+        foreach (var module in modules)
+        {
+            var info = await interactions.AddModuleAsync(module.Type, services);
+            (module.Global ? global : guild).Add(info);
+        }
+        GlobalModules = [.. global];
+        GuildModules = [.. guild];
+        _globalCommandNames = global.SelectMany(GetCommandNames).ToHashSet();
 
         client.InteractionCreated += HandleInteractionAsync;
         interactions.InteractionExecuted += OnInteractionExecutedAsync;
@@ -33,8 +43,10 @@ public sealed class CommandHandler(
 
     private async Task HandleInteractionAsync(SocketInteraction interaction)
     {
-        // Outside the home server only the global manual check is served; RequireCheckAccess decides who can use it.
-        if (interaction.GuildId != options.Value.GuildId && interaction is not SocketMessageCommand)
+        // Outside the home server only global commands are served; their preconditions decide who can use them.
+        // Guild commands left behind in another server, and components there, are ignored.
+        if (interaction.GuildId != options.Value.GuildId
+            && !(interaction is SocketCommandBase command && _globalCommandNames.Contains(command.CommandName)))
         {
             return;
         }
@@ -42,6 +54,12 @@ public sealed class CommandHandler(
         var context = new SocketInteractionContext(client, interaction);
         await interactions.ExecuteCommandAsync(context, services);
     }
+
+    /// <summary>The names Discord sends in an interaction for a module's top-level commands.</summary>
+    private static IEnumerable<string> GetCommandNames(ModuleInfo module) =>
+        module.IsSlashGroup
+            ? [module.SlashGroupName]
+            : module.SlashCommands.Select(c => c.Name).Concat(module.ContextCommands.Select(c => c.Name));
 
     private async Task OnInteractionExecutedAsync(ICommandInfo command, IInteractionContext context, IResult result)
     {

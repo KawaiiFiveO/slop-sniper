@@ -2,9 +2,10 @@ using Discord;
 using Discord.Interactions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using SlopSniper.Modules;
 using SlopSniper.Options;
 
-namespace SlopSniper.Modules;
+namespace SlopSniper.Provenance;
 
 /// <summary>Who can run a manual check. The command is installable on user accounts and usable anywhere, so this is
 /// enforced here rather than with Discord's default member permissions, which a user-installed command may not
@@ -15,7 +16,7 @@ public sealed class RequireCheckAccessAttribute : PreconditionAttribute
         IInteractionContext context, ICommandInfo commandInfo, IServiceProvider services)
     {
         var homeGuildId = services.GetRequiredService<IOptions<BotOptions>>().Value.GuildId;
-        var allowed = services.GetRequiredService<IOptionsMonitor<BotOptions>>().CurrentValue.UserAppUserIds;
+        var allowed = services.GetRequiredService<IOptionsMonitor<BotOptions>>().CurrentValue.Provenance.UserAppUserIds;
 
         // Moderators of the home server, where the bot scans automatically.
         if (homeGuildId != 0
@@ -25,21 +26,11 @@ public sealed class RequireCheckAccessAttribute : PreconditionAttribute
             return PreconditionResult.FromSuccess();
         }
 
-        if (allowed.Contains(context.User.Id) || await IsOwnerAsync(context))
+        if (allowed.Contains(context.User.Id) || await RequireBotOwnerAttribute.IsOwnerAsync(context))
         {
             return PreconditionResult.FromSuccess();
         }
 
         return PreconditionResult.FromError("You don't have access to this command.");
-    }
-
-    /// <summary>The application owner, or any member of the team that owns it.</summary>
-    private static async Task<bool> IsOwnerAsync(IInteractionContext context)
-    {
-        // Discord.Net caches the application info after the first request.
-        var application = await context.Client.GetApplicationInfoAsync();
-        return application.Team is { } team
-            ? team.TeamMembers.Any(m => m.User.Id == context.User.Id)
-            : application.Owner.Id == context.User.Id;
     }
 }

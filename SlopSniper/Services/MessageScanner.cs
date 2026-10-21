@@ -1,23 +1,22 @@
 using Discord;
 using Discord.WebSocket;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SlopSniper.Options;
 using SlopSniper.State;
 
 namespace SlopSniper.Services;
 
-/// <summary>Queues new messages with images for checking. Runs on the gateway thread, so it only filters and
-/// enqueues; the checks happen in <see cref="ScanQueue"/>.</summary>
+/// <summary>Hands new messages with images in GuildId to every enabled module. Runs on the gateway thread, so it
+/// only filters; the modules do their work on their own queues.</summary>
 public sealed class MessageScanner(
     DiscordSocketClient client,
-    ScanQueue queue,
-    ScanStats stats,
+    IEnumerable<IMessageModule> modules,
     StateStore state,
-    IOptionsMonitor<BotOptions> options,
-    ILogger<MessageScanner> logger) : IHostedService
+    IOptionsMonitor<BotOptions> options) : IHostedService
 {
+    private readonly IMessageModule[] _modules = modules.ToArray();
+
     public Task StartAsync(CancellationToken cancellationToken)
     {
         client.MessageReceived += OnMessageReceivedAsync;
@@ -33,7 +32,8 @@ public sealed class MessageScanner(
     private async Task OnMessageReceivedAsync(SocketMessage message)
     {
         var settings = options.CurrentValue;
-        if (message is not SocketUserMessage
+        if (_modules.Length == 0
+            || message is not SocketUserMessage userMessage
             || message.Channel is not SocketGuildChannel channel
             || channel.Guild.Id != settings.GuildId
             || message.Author.Id == client.CurrentUser.Id
@@ -50,14 +50,9 @@ public sealed class MessageScanner(
             return;
         }
 
-        if (queue.TryEnqueue(ScanJob.Create(message, channel.Guild.Id, channel.Id, images)))
+        foreach (var module in _modules)
         {
-            stats.MessageQueued();
-        }
-        else
-        {
-            stats.MessageDropped();
-            logger.LogWarning("Scan queue is full; skipped message {MessageId} in {ChannelId}.", message.Id, channel.Id);
+            module.OnMessage(userMessage, channel, images);
         }
     }
 

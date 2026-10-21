@@ -26,10 +26,15 @@ public sealed class ConfigReloader(
 
     public ReloadResult Reload()
     {
-        BotOptions candidate;
+        var candidate = new BotOptions();
         try
         {
-            candidate = LoadCandidate();
+            var candidateConfig = LoadCandidateConfig();
+            if (LegacyConfig.FindMovedSettings(candidateConfig) is { Count: > 0 } moved)
+            {
+                return ReloadResult.Failed(moved);
+            }
+            candidateConfig.Bind(candidate);
         }
         catch (Exception ex) when (ex is FileNotFoundException or InvalidDataException or FormatException or InvalidOperationException)
         {
@@ -65,34 +70,49 @@ public sealed class ConfigReloader(
             restartRequired.Add(nameof(BotOptions.GuildId));
         }
 
+        // Modules are only added at startup.
+        restartRequired.AddRange(GetChangedSettings(startup, candidate).Where(c => c.EndsWith(".Enabled", StringComparison.Ordinal)));
+
         // Reloading the host's configuration makes IOptionsMonitor<BotOptions> pick up the new values.
         ((IConfigurationRoot)configuration).Reload();
         return new ReloadResult([], changed, restartRequired);
     }
 
-    /// <summary>Compares settings by their JSON form, which also covers lists like ExcludedChannelIds.</summary>
+    /// <summary>Compares settings by their JSON form, which also covers lists like ExcludedChannelIds. Settings in a
+    /// module's section are named with dots, e.g. Provenance.CacheHours.</summary>
     private static List<string> GetChangedSettings(BotOptions current, BotOptions candidate)
     {
-        var before = JsonSerializer.SerializeToNode(current)!.AsObject();
-        var after = JsonSerializer.SerializeToNode(candidate)!.AsObject();
+        var before = Flatten(JsonSerializer.SerializeToNode(current));
+        var after = Flatten(JsonSerializer.SerializeToNode(candidate));
 
         return after
-            .Where(p => !JsonNode.DeepEquals(p.Value, before[p.Key]))
+            .Where(p => !JsonNode.DeepEquals(p.Value, before.GetValueOrDefault(p.Key)))
             .Select(p => p.Key)
             .ToList();
     }
 
-    private static BotOptions LoadCandidate()
+    private static Dictionary<string, JsonNode?> Flatten(JsonNode? node, string path = "", Dictionary<string, JsonNode?>? settings = null)
     {
-        // Same sources as Program.cs: config.json overridden by SLOPSNIPER_* environment variables.
-        var candidateConfig = new ConfigurationBuilder()
+        settings ??= [];
+        if (node is JsonObject section)
+        {
+            foreach (var (name, value) in section)
+            {
+                Flatten(value, path.Length == 0 ? name : $"{path}.{name}", settings);
+            }
+        }
+        else
+        {
+            settings[path] = node;
+        }
+        return settings;
+    }
+
+    // Same sources as Program.cs: config.json overridden by SLOPSNIPER_* environment variables.
+    private static IConfigurationRoot LoadCandidateConfig() =>
+        new ConfigurationBuilder()
             .SetBasePath(AppContext.BaseDirectory)
             .AddJsonFile(BotOptions.FileName, optional: false, reloadOnChange: false)
             .AddEnvironmentVariables(EnvironmentPrefix)
             .Build();
-
-        var candidate = new BotOptions();
-        candidateConfig.Bind(candidate);
-        return candidate;
-    }
 }

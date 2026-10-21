@@ -33,7 +33,7 @@ public sealed class ProvenanceClient(IHttpClientFactory httpClientFactory, IOpti
         form.Add(file, "file", "image." + mediaType["image/".Length..]);
 
         using var request = new HttpRequestMessage(HttpMethod.Post, Endpoint) { Content = form };
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.CurrentValue.OpenAiApiKey);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.CurrentValue.Provenance.OpenAiApiKey);
 
         HttpResponseMessage response;
         try

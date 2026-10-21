@@ -1,18 +1,18 @@
 # slop-sniper
 
-Discord bot that checks posted images for OpenAI provenance signals (C2PA and SynthID).
+Discord bot that checks posted images for slop and scams. Each feature is a module that can be turned on or off.
 
 ## Commands
 
-`Check image provenance` (message context menu) - Check a message's images and link previews. Only you see the result. Install the app on your account to use it anywhere. (Bot owner and `UserAppUserIds`; Manage Messages in `GuildId`)
+`Check image provenance` (message context menu) - Check a message's images and link previews for OpenAI provenance signals (C2PA and SynthID). Only you see the result. Install the app on your account to use it anywhere. (Bot owner and `Provenance.UserAppUserIds`; Manage Messages in `GuildId`)
 
 `/sniper status` - Show scanning status and counters. (Manage Messages)
 
 `/sniper pause|resume` - Stop or resume automatic scanning, including across restarts. (Manage Messages)
 
-`/sniper reload` - Re-read `config.json` without restarting. (Bot owner)
+`/sniper-reload` - Re-read `config.json` without restarting. Works anywhere, including DMs with the bot. (Bot owner)
 
-`/sniper` permissions can be changed in Server Settings > Integrations.
+`/sniper` permissions can be changed in Server Settings > Integrations. Changing `GuildId` removes the commands from the previous server on the next start.
 
 ## Config
 
@@ -22,27 +22,31 @@ Copy `config.example.json` to `config.json` next to the binary.
 
 `GuildId` - Server to scan automatically and register `/sniper` in. (0 for user app only)
 
-`OpenAiApiKey` - OpenAI API key. (Only needs the Images permission)
-
 `LogChannelId` - Channel ID for reports and alerts. (Required if `GuildId` is set)
-
-`UserAppUserIds` - User IDs that can use `Check image provenance` anywhere, besides the bot owner.
-
-`ReportMode` - `Private` (log channel), `Public` (reply to the image) or `Both`.
 
 `ExcludedChannelIds` - Channel or category IDs that aren't scanned automatically.
 
 `ScanBots` - Also scan messages from other bots. (Webhooks are always scanned)
 
-`MaxImageMiB` - Skip larger images. (1-50)
+### Provenance
 
-`RequestIntervalSeconds` - Minimum seconds between OpenAI requests.
+`Provenance.Enabled` - OpenAI provenance checks, automatic in `GuildId` and manual anywhere. (Restart to change)
 
-`QueueCapacity` - Messages waiting to be checked before new ones are dropped.
+`Provenance.OpenAiApiKey` - OpenAI API key. (Only needs the Images permission)
 
-`CacheHours` - Reuse the result for an identical file for this long. (0 to disable)
+`Provenance.UserAppUserIds` - User IDs that can use `Check image provenance` anywhere, besides the bot owner.
 
-Any setting can be overridden with a `SLOPSNIPER_` environment variable, e.g. `SLOPSNIPER_OpenAiApiKey`.
+`Provenance.ReportMode` - `Private` (log channel), `Public` (reply to the image) or `Both`.
+
+`Provenance.MaxImageMiB` - Skip larger images. (1-50)
+
+`Provenance.RequestIntervalSeconds` - Minimum seconds between OpenAI requests.
+
+`Provenance.QueueCapacity` - Messages waiting to be checked before new ones are dropped.
+
+`Provenance.CacheHours` - Reuse the result for an identical file for this long. (0 to disable)
+
+Any setting can be overridden with a `SLOPSNIPER_` environment variable, with `__` between section and key, e.g. `SLOPSNIPER_Provenance__OpenAiApiKey`.
 
 ## Deployment
 

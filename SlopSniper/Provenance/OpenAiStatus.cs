@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Options;
 using SlopSniper.Options;
 
-namespace SlopSniper.Services;
+namespace SlopSniper.Provenance;
 
 /// <summary>Tracks whether OpenAI checks are suspended after an error that retrying won't fix soon, such as a bad
 /// key or exhausted quota. A successful check or a config reload lifts the suspension.</summary>

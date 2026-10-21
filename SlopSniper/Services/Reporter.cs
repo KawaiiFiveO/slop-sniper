@@ -6,29 +6,16 @@ using SlopSniper.Options;
 
 namespace SlopSniper.Services;
 
-/// <summary>Sends detection reports and service alerts to Discord.</summary>
+/// <summary>Sends reports and service alerts to the log channel, and public replies.</summary>
 public sealed class Reporter(DiscordSocketClient client, IOptionsMonitor<BotOptions> options, ILogger<Reporter> logger)
 {
     // Replies never ping the image's author.
     private static readonly AllowedMentions NoMentions = new(AllowedMentionTypes.None) { MentionRepliedUser = false };
 
-    public async Task ReportDetectionAsync(ScanJob job, IReadOnlyList<ImageCheck> detected)
-    {
-        var mode = options.CurrentValue.ReportMode;
-        if (mode is ReportMode.Private or ReportMode.Both)
-        {
-            await SendToLogChannelAsync(embed: ReportFormatter.BuildDetectionEmbed(job, detected));
-        }
-        if (mode is ReportMode.Public or ReportMode.Both)
-        {
-            await ReplyAsync(job, ReportFormatter.BuildPublicReply(detected));
-        }
-    }
-
     /// <summary>Posts a notice for moderators, such as OpenAI checks being suspended.</summary>
     public Task SendAlertAsync(string text) => SendToLogChannelAsync(text: text);
 
-    private async Task SendToLogChannelAsync(string? text = null, Embed? embed = null)
+    public async Task SendToLogChannelAsync(string? text = null, Embed? embed = null)
     {
         // No log channel in user-app-only mode (GuildId 0); results are only shown to whoever ran the check.
         var channelId = options.CurrentValue.LogChannelId;
@@ -52,7 +39,8 @@ public sealed class Reporter(DiscordSocketClient client, IOptionsMonitor<BotOpti
         }
     }
 
-    private async Task ReplyAsync(ScanJob job, string text)
+    /// <summary>Replies under the message. Nothing is sent if the message has been deleted in the meantime.</summary>
+    public async Task ReplyAsync(ScanJob job, string text)
     {
         if (client.GetChannel(job.ChannelId) is not IMessageChannel channel)
         {
@@ -64,7 +52,7 @@ public sealed class Reporter(DiscordSocketClient client, IOptionsMonitor<BotOpti
             await channel.SendMessageAsync(
                 text,
                 allowedMentions: NoMentions,
-                messageReference: new MessageReference(job.MessageId, failIfNotExists: false));
+                messageReference: new MessageReference(job.MessageId, failIfNotExists: true));
         }
         catch (Exception ex) when (ex is Discord.Net.HttpException or TimeoutException)
         {

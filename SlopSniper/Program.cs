@@ -8,6 +8,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SlopSniper;
+using SlopSniper.Modules;
 using SlopSniper.Options;
 using SlopSniper.Provenance;
 using SlopSniper.Services;
@@ -48,8 +49,7 @@ builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
 builder.Services.AddOptions<BotOptions>().Bind(builder.Configuration);
 builder.Services.AddSingleton<IValidateOptions<BotOptions>, BotOptionsValidator>();
 
-builder.Services.AddHttpClient(ProvenanceClient.HttpClientName, c => c.Timeout = TimeSpan.FromSeconds(60));
-builder.Services.AddHttpClient(ImageChecker.DownloadClientName, c =>
+builder.Services.AddHttpClient(ImageDownloader.HttpClientName, c =>
 {
     c.Timeout = TimeSpan.FromSeconds(60);
     c.DefaultRequestHeaders.UserAgent.ParseAdd($"slop-sniper/{version.Split('+')[0]}");
@@ -71,22 +71,32 @@ builder.Services.AddSingleton<CommandHandler>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<StateStore>();
 builder.Services.AddSingleton<ConfigReloader>();
-builder.Services.AddSingleton<ProvenanceClient>();
-builder.Services.AddSingleton<ResultCache>();
-builder.Services.AddSingleton<OpenAiStatus>();
-builder.Services.AddSingleton<ScanStats>();
 builder.Services.AddSingleton<Reporter>();
-builder.Services.AddSingleton<ImageChecker>();
-builder.Services.AddSingleton<ScanQueue>();
+builder.Services.AddSingleton<ImageDownloader>();
+builder.Services.AddSingleton(new CommandModule(typeof(SniperCommands), Global: false));
+builder.Services.AddSingleton(new CommandModule(typeof(ReloadCommand), Global: true));
 
-// Hosted services stop in reverse order: the scanner stops taking messages, then the queue stops, then the
-// Discord client disconnects.
+// Hosted services stop in reverse order: the scanner stops taking messages, then the modules' queues stop, then
+// the Discord client disconnects. So modules are added between the two.
 builder.Services.AddHostedService<BotHostedService>();
-builder.Services.AddHostedService(sp => sp.GetRequiredService<ScanQueue>());
+if (IsEnabled("Provenance"))
+{
+    builder.Services.AddProvenance();
+}
 builder.Services.AddHostedService<MessageScanner>();
 
 using var host = builder.Build();
 var logger = host.Services.GetRequiredService<ILogger<Program>>();
+
+// Settings from the flat config.json used before modules had their own sections would be silently ignored.
+if (LegacyConfig.FindMovedSettings(builder.Configuration) is { Count: > 0 } moved)
+{
+    foreach (var setting in moved)
+    {
+        logger.LogCritical("Invalid {ConfigFile}: {Failure}", BotOptions.FileName, setting);
+    }
+    return ExitCodes.ConfigError;
+}
 
 try
 {
@@ -111,3 +121,7 @@ logger.LogInformation("slop-sniper {Version}", version);
 
 await host.RunAsync();
 return Environment.ExitCode;
+
+// Read before the options are bound, which only happens once the host is built. A value that isn't a bool counts
+// as disabled here and fails when the options are bound.
+bool IsEnabled(string module) => bool.TryParse(builder.Configuration[$"{module}:Enabled"], out var enabled) && enabled;
