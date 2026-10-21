@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Security.Cryptography;
-using Discord;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SlopSniper.Options;
@@ -17,8 +16,8 @@ public enum CheckStatus
 }
 
 /// <param name="Detail">The size, type or error behind a status other than <see cref="CheckStatus.Checked"/>.</param>
-public sealed record AttachmentCheck(
-    IAttachment Attachment,
+public sealed record ImageCheck(
+    ImageSource Image,
     CheckStatus Status,
     ProvenanceCheck? Result = null,
     bool FromCache = false,
@@ -27,8 +26,8 @@ public sealed record AttachmentCheck(
     public bool Detected => Result?.Detected == true;
 }
 
-/// <summary>Checks one attachment: filters it, downloads it, and asks OpenAI unless the result is cached. Every
-/// request goes through one throttle shared by automatic and manual checks.</summary>
+/// <summary>Checks one image: filters it, downloads it, and asks OpenAI unless the result is cached. Every request
+/// goes through one throttle shared by automatic and manual checks.</summary>
 public sealed class ImageChecker(
     IHttpClientFactory httpClientFactory,
     ProvenanceClient provenance,
@@ -49,45 +48,45 @@ public sealed class ImageChecker(
     private readonly SemaphoreSlim _throttle = new(1, 1);
     private DateTimeOffset _nextRequestAt = DateTimeOffset.MinValue;
 
-    public async Task<AttachmentCheck> CheckAsync(IAttachment attachment, CancellationToken cancellationToken)
+    public async Task<ImageCheck> CheckAsync(ImageSource source, CancellationToken cancellationToken)
     {
-        if (!ImageFormats.IsSupported(attachment))
+        if (!ImageFormats.IsSupported(source))
         {
-            return new AttachmentCheck(attachment, CheckStatus.Unsupported, Detail: ImageFormats.Describe(attachment));
+            return new ImageCheck(source, CheckStatus.Unsupported, Detail: ImageFormats.Describe(source));
         }
 
         var maxBytes = options.CurrentValue.GetMaxImageBytes();
-        if (attachment.Size > maxBytes)
+        if (source.Size > maxBytes)
         {
-            return new AttachmentCheck(attachment, CheckStatus.TooLarge, Detail: FormatMiB(attachment.Size));
+            return new ImageCheck(source, CheckStatus.TooLarge, Detail: FormatMiB(source.Size.Value));
         }
 
         byte[]? image;
         try
         {
-            image = await DownloadAsync(attachment.Url, maxBytes, cancellationToken);
+            image = await DownloadAsync(source.Url, maxBytes, cancellationToken);
         }
         catch (Exception ex) when (ex is HttpRequestException or IOException or TaskCanceledException
             && !cancellationToken.IsCancellationRequested)
         {
-            logger.LogWarning("Couldn't download attachment {AttachmentId}: {Error}", attachment.Id, ex.Message);
-            return new AttachmentCheck(attachment, CheckStatus.Failed, Detail: "couldn't download the image from Discord");
+            logger.LogWarning("Couldn't download {Image}: {Error}", source.LogName, ex.Message);
+            return new ImageCheck(source, CheckStatus.Failed, Detail: "couldn't download the image from Discord");
         }
 
         if (image is null)
         {
-            return new AttachmentCheck(attachment, CheckStatus.TooLarge, Detail: $"over {options.CurrentValue.MaxImageMiB} MiB");
+            return new ImageCheck(source, CheckStatus.TooLarge, Detail: $"over {options.CurrentValue.MaxImageMiB} MiB");
         }
 
         if (ImageFormats.Sniff(image) is not { } mediaType)
         {
-            return new AttachmentCheck(attachment, CheckStatus.Unsupported, Detail: "not a PNG, JPEG or WebP file");
+            return new ImageCheck(source, CheckStatus.Unsupported, Detail: "not a PNG, JPEG or WebP file");
         }
 
         var hash = Convert.ToHexString(SHA256.HashData(image));
         if (cache.TryGet(hash, out var cached))
         {
-            return new AttachmentCheck(attachment, CheckStatus.Checked, cached, FromCache: true);
+            return new ImageCheck(source, CheckStatus.Checked, cached, FromCache: true);
         }
 
         try
@@ -99,25 +98,25 @@ public sealed class ImageChecker(
                 logger.LogInformation("OpenAI checks resumed.");
                 await reporter.SendAlertAsync("OpenAI provenance checks are working again.");
             }
-            return new AttachmentCheck(attachment, CheckStatus.Checked, result);
+            return new ImageCheck(source, CheckStatus.Checked, result);
         }
         catch (ProvenanceException ex)
         {
-            await HandleFailureAsync(attachment, ex);
-            return new AttachmentCheck(attachment, CheckStatus.Failed, Detail: ex.Message);
+            await HandleFailureAsync(source, ex);
+            return new ImageCheck(source, CheckStatus.Failed, Detail: ex.Message);
         }
     }
 
-    private async Task HandleFailureAsync(IAttachment attachment, ProvenanceException ex)
+    private async Task HandleFailureAsync(ImageSource source, ProvenanceException ex)
     {
-        logger.LogWarning("OpenAI check failed for attachment {AttachmentId} ({Failure}): {Error}", attachment.Id, ex.Failure, ex.Message);
+        logger.LogWarning("OpenAI check failed for {Image} ({Failure}): {Error}", source.LogName, ex.Failure, ex.Message);
 
         var suspension = ex.Failure switch
         {
             ProvenanceFailure.QuotaExceeded => (Retry: (TimeSpan?)QuotaRetryDelay,
                 Alert: $"OpenAI provenance checks are paused: the API quota is used up. Trying again hourly.\n> {ex.Message}"),
             ProvenanceFailure.AccessDenied => (Retry: null,
-                Alert: $"OpenAI provenance checks are paused: the API key was rejected or lost access. Fix OpenAiApiKey, then `/sniper reload`.\n> {ex.Message}"),
+                Alert: $"OpenAI provenance checks are paused: the API key was rejected or lost access. Fix OpenAiApiKey, then `/sniper reload` or restart.\n> {ex.Message}"),
             _ => default,
         };
 

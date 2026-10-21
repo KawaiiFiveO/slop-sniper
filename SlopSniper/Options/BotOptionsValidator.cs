@@ -18,20 +18,15 @@ public sealed class BotOptionsValidator : IValidateOptions<BotOptions>
             errors.Add("Token is required.");
         }
 
-        if (options.GuildId == 0)
-        {
-            errors.Add("GuildId is required.");
-        }
-
         if (string.IsNullOrWhiteSpace(options.OpenAiApiKey))
         {
             errors.Add("OpenAiApiKey is required.");
         }
 
         // Service alerts always go to the log channel, even when detections are only reported publicly.
-        if (options.LogChannelId == 0)
+        if (options.GuildId != 0 && options.LogChannelId == 0)
         {
-            errors.Add("LogChannelId is required.");
+            errors.Add("LogChannelId is required when GuildId is set.");
         }
 
         if (!Enum.IsDefined(options.ReportMode))

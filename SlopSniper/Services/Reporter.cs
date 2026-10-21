@@ -12,7 +12,7 @@ public sealed class Reporter(DiscordSocketClient client, IOptionsMonitor<BotOpti
     // Replies never ping the image's author.
     private static readonly AllowedMentions NoMentions = new(AllowedMentionTypes.None) { MentionRepliedUser = false };
 
-    public async Task ReportDetectionAsync(ScanJob job, IReadOnlyList<AttachmentCheck> detected)
+    public async Task ReportDetectionAsync(ScanJob job, IReadOnlyList<ImageCheck> detected)
     {
         var mode = options.CurrentValue.ReportMode;
         if (mode is ReportMode.Private or ReportMode.Both)
@@ -30,7 +30,12 @@ public sealed class Reporter(DiscordSocketClient client, IOptionsMonitor<BotOpti
 
     private async Task SendToLogChannelAsync(string? text = null, Embed? embed = null)
     {
+        // No log channel in user-app-only mode (GuildId 0); results are only shown to whoever ran the check.
         var channelId = options.CurrentValue.LogChannelId;
+        if (channelId == 0)
+        {
+            return;
+        }
         if (client.GetChannel(channelId) is not IMessageChannel channel)
         {
             logger.LogWarning("Log channel {ChannelId} wasn't found or isn't a text channel.", channelId);

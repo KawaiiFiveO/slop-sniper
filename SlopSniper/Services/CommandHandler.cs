@@ -3,6 +3,7 @@ using Discord.Interactions;
 using Discord.WebSocket;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using SlopSniper.Modules;
 using SlopSniper.Options;
 
 namespace SlopSniper.Services;
@@ -15,9 +16,16 @@ public sealed class CommandHandler(
     IOptions<BotOptions> options,
     ILogger<CommandHandler> logger)
 {
+    /// <summary>Registered globally: the manual check, which also works as a user app anywhere.</summary>
+    public ModuleInfo[] GlobalModules { get; private set; } = [];
+
+    /// <summary>Registered to GuildId only: the commands for automatic scanning.</summary>
+    public ModuleInfo[] GuildModules { get; private set; } = [];
+
     public async Task InitializeAsync()
     {
-        await interactions.AddModulesAsync(typeof(CommandHandler).Assembly, services);
+        GlobalModules = [await interactions.AddModuleAsync<CheckImageCommand>(services)];
+        GuildModules = [await interactions.AddModuleAsync<SniperCommands>(services)];
 
         client.InteractionCreated += HandleInteractionAsync;
         interactions.InteractionExecuted += OnInteractionExecutedAsync;
@@ -25,8 +33,8 @@ public sealed class CommandHandler(
 
     private async Task HandleInteractionAsync(SocketInteraction interaction)
     {
-        // The bot only serves one guild; anything else is left alone.
-        if (interaction.GuildId != options.Value.GuildId)
+        // Outside the home server only the global manual check is served; RequireCheckAccess decides who can use it.
+        if (interaction.GuildId != options.Value.GuildId && interaction is not SocketMessageCommand)
         {
             return;
         }

@@ -4,7 +4,7 @@ Discord bot that checks posted images for OpenAI provenance signals (C2PA and Sy
 
 ## Commands
 
-`Check image provenance` (message context menu) - Check a message's images. Only you see the result. (Manage Messages)
+`Check image provenance` (message context menu) - Check a message's images and link previews. Only you see the result. Install the app on your account to use it anywhere. (Bot owner and `UserAppUserIds`; Manage Messages in `GuildId`)
 
 `/sniper status` - Show scanning status and counters. (Manage Messages)
 
@@ -12,19 +12,21 @@ Discord bot that checks posted images for OpenAI provenance signals (C2PA and Sy
 
 `/sniper reload` - Re-read `config.json` without restarting. (Bot owner)
 
-Command permissions can be changed in Server Settings > Integrations.
+`/sniper` permissions can be changed in Server Settings > Integrations.
 
 ## Config
 
 Copy `config.example.json` to `config.json` next to the binary.
 
-`Token` - Your bot token. (Needs the Message Content intent)
+`Token` - Your bot token. (Needs the Message Content intent if `GuildId` is set)
 
-`GuildId` - Your server ID.
+`GuildId` - Server to scan automatically and register `/sniper` in. (0 for user app only)
 
 `OpenAiApiKey` - OpenAI API key. (Only needs the Images permission)
 
-`LogChannelId` - Channel ID for reports and alerts.
+`LogChannelId` - Channel ID for reports and alerts. (Required if `GuildId` is set)
+
+`UserAppUserIds` - User IDs that can use `Check image provenance` anywhere, besides the bot owner.
 
 `ReportMode` - `Private` (log channel), `Public` (reply to the image) or `Both`.
 

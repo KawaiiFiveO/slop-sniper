@@ -30,7 +30,7 @@ public sealed class ScanStats(TimeProvider time)
     public void MessageQueued() => Interlocked.Increment(ref _messagesQueued);
     public void MessageDropped() => Interlocked.Increment(ref _messagesDropped);
 
-    public void Record(AttachmentCheck check)
+    public void Record(ImageCheck check)
     {
         switch (check.Status)
         {

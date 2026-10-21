@@ -51,8 +51,9 @@ public sealed class BotHostedService(
     {
         logger.LogInformation("Connected as {Username}.", client.CurrentUser.Username);
 
+        var guildId = options.Value.GuildId;
         var logChannelId = currentOptions.CurrentValue.LogChannelId;
-        if (client.GetChannel(logChannelId) is not IMessageChannel)
+        if (guildId != 0 && client.GetChannel(logChannelId) is not IMessageChannel)
         {
             logger.LogWarning("Log channel {ChannelId} wasn't found or isn't a text channel. Reports and alerts can't be sent.", logChannelId);
         }
@@ -63,11 +64,18 @@ public sealed class BotHostedService(
             return;
         }
 
-        // Commands are registered to the configured guild only, never globally.
-        var guildId = options.Value.GuildId;
-        await interactions.RegisterCommandsToGuildAsync(guildId, deleteMissing: true);
+        // The manual check is global so it can be installed as a user app; /sniper stays in the home server.
+        await interactions.AddModulesGloballyAsync(deleteMissing: true, commandHandler.GlobalModules);
+        if (guildId != 0)
+        {
+            await interactions.AddModulesToGuildAsync(guildId, deleteMissing: true, commandHandler.GuildModules);
+            logger.LogInformation("Registered the manual check globally and /sniper to guild {GuildId}.", guildId);
+        }
+        else
+        {
+            logger.LogInformation("Registered the manual check globally. GuildId is 0, so automatic scanning is off.");
+        }
         _commandsRegistered = true;
-        logger.LogInformation("Registered commands to guild {GuildId}.", guildId);
     }
 
     private Task OnDisconnectedAsync(Exception exception)

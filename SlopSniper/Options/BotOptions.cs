@@ -18,13 +18,18 @@ public sealed class BotOptions
     public const string FileName = "config.json";
 
     public string Token { get; set; } = "";
+
+    /// <summary>The server that's scanned automatically and gets /sniper. 0 runs as a user app only.</summary>
     public ulong GuildId { get; set; }
 
     /// <summary>OpenAI API key. Only needs the Images permission.</summary>
     public string OpenAiApiKey { get; set; } = "";
 
-    /// <summary>Moderator channel for private reports and OpenAI service alerts.</summary>
+    /// <summary>Moderator channel for private reports and OpenAI service alerts. Required when GuildId is set.</summary>
     public ulong LogChannelId { get; set; }
+
+    /// <summary>Users who can run the manual check anywhere, in addition to the bot owner.</summary>
+    public List<ulong> UserAppUserIds { get; set; } = [];
 
     public ReportMode ReportMode { get; set; } = ReportMode.Private;
 

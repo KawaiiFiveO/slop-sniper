@@ -49,12 +49,21 @@ builder.Services.AddOptions<BotOptions>().Bind(builder.Configuration);
 builder.Services.AddSingleton<IValidateOptions<BotOptions>, BotOptionsValidator>();
 
 builder.Services.AddHttpClient(ProvenanceClient.HttpClientName, c => c.Timeout = TimeSpan.FromSeconds(60));
-builder.Services.AddHttpClient(ImageChecker.DownloadClientName, c => c.Timeout = TimeSpan.FromSeconds(60));
+builder.Services.AddHttpClient(ImageChecker.DownloadClientName, c =>
+{
+    c.Timeout = TimeSpan.FromSeconds(60);
+    c.DefaultRequestHeaders.UserAgent.ParseAdd($"slop-sniper/{version.Split('+')[0]}");
+});
 
+// Automatic scanning needs message events. As a user app only (GuildId 0), the bot just answers commands, so it
+// doesn't ask for them. Parsed by hand because a bad value is reported by the validator below, not here.
+var scansAutomatically = ulong.TryParse(builder.Configuration["GuildId"], out var guildId) && guildId != 0;
 builder.Services.AddSingleton(new DiscordSocketConfig
 {
     // Message Content is a privileged intent; it has to be enabled in the Developer Portal too.
-    GatewayIntents = GatewayIntents.Guilds | GatewayIntents.GuildMessages | GatewayIntents.MessageContent,
+    GatewayIntents = scansAutomatically
+        ? GatewayIntents.Guilds | GatewayIntents.GuildMessages | GatewayIntents.MessageContent
+        : GatewayIntents.Guilds,
 });
 builder.Services.AddSingleton<DiscordSocketClient>();
 builder.Services.AddSingleton(sp => new InteractionService(sp.GetRequiredService<DiscordSocketClient>()));

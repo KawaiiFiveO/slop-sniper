@@ -60,11 +60,11 @@ public sealed class ScanQueue(
 
     private async Task ProcessAsync(ScanJob job, CancellationToken cancellationToken)
     {
-        List<AttachmentCheck> checks = [];
+        List<ImageCheck> checks = [];
         foreach (var image in job.Images)
         {
             var check = status.IsSuspended
-                ? new AttachmentCheck(image, CheckStatus.Failed, Detail: "OpenAI checks are suspended")
+                ? new ImageCheck(image, CheckStatus.Failed, Detail: "OpenAI checks are suspended")
                 : await checker.CheckAsync(image, cancellationToken);
             stats.Record(check);
             checks.Add(check);

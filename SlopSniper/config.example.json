@@ -3,6 +3,7 @@
   "GuildId": 1234567890,
   "OpenAiApiKey": "PutYourOpenAiKeyHere",
   "LogChannelId": 1234567890,
+  "UserAppUserIds": [],
   "ReportMode": "Private",
   "ExcludedChannelIds": [],
   "ScanBots": false,

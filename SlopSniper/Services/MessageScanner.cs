@@ -43,7 +43,8 @@ public sealed class MessageScanner(
             return;
         }
 
-        var images = ImageFormats.GetImages(message);
+        // Link previews are only checked manually.
+        var images = ImageFormats.GetImages(message, includeLinkPreviews: false);
         if (images.Count == 0 || await state.ReadAsync(s => s.ScanningPaused))
         {
             return;

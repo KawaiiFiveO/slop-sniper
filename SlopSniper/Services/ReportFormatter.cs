@@ -14,37 +14,48 @@ public static class ReportFormatter
 
     private const string NotDetectedFooter = "Not proof it's human-made. Other AI providers aren't detected.";
 
+    // Well under Discord's 256-character field name limit, so ten images stay within the 6000-character embed limit.
+    private const int MaxFieldNameLength = 100;
+
     /// <summary>The private report for an automatic scan, sent to the log channel.</summary>
-    public static Embed BuildDetectionEmbed(ScanJob job, IReadOnlyList<AttachmentCheck> detected)
+    public static Embed BuildDetectionEmbed(ScanJob job, IReadOnlyList<ImageCheck> detected)
     {
         var embed = new EmbedBuilder()
             .WithTitle("OpenAI provenance detected")
             .WithColor(DetectedColor)
-            .WithDescription($"<@{job.AuthorId}> in <#{job.ChannelId}>\n[Jump to message]({job.JumpUrl})")
+            .WithDescription(DescribeMessage(job))
             .WithTimestamp(job.Timestamp)
             .WithFooter(DetectedFooter);
 
         foreach (var check in detected)
         {
-            embed.AddField(FieldName(check.Attachment), FormatSignals(check.Result!, detectedOnly: true));
+            embed.AddField(FieldName(check.Image), FormatSignals(check.Result!, detectedOnly: true));
         }
 
-        if (detected.FirstOrDefault(c => !IsSpoiler(c.Attachment)) is { } thumbnail)
+        // Spoilered images aren't shown as thumbnails.
+        if (detected.FirstOrDefault(c => !c.Image.IsSpoiler) is { } thumbnail)
         {
-            embed.WithThumbnailUrl(thumbnail.Attachment.Url);
+            embed.WithThumbnailUrl(thumbnail.Image.Url);
         }
 
         return embed.Build();
     }
 
     /// <summary>The reply to a manual check, which also covers images that weren't detected or checked.</summary>
-    public static Embed BuildManualEmbed(ScanJob job, IReadOnlyList<AttachmentCheck> checks, int maxImageMiB)
+    /// <param name="notChecked">Images left out because the message had more than one check covers.</param>
+    public static Embed BuildManualEmbed(ScanJob job, IReadOnlyList<ImageCheck> checks, int maxImageMiB, int notChecked)
     {
         var detected = checks.Any(c => c.Detected);
+        var description = DescribeMessage(job);
+        if (notChecked > 0)
+        {
+            description += $"\n{notChecked} more {(notChecked == 1 ? "image wasn't" : "images weren't")} checked.";
+        }
+
         var embed = new EmbedBuilder()
             .WithTitle(detected ? "OpenAI provenance detected" : "No OpenAI provenance found")
             .WithColor(detected ? DetectedColor : ClearColor)
-            .WithDescription($"<@{job.AuthorId}> in <#{job.ChannelId}>\n[Jump to message]({job.JumpUrl})")
+            .WithDescription(description)
             .WithFooter(detected ? DetectedFooter : NotDetectedFooter);
 
         foreach (var check in checks)
@@ -56,13 +67,13 @@ public static class ReportFormatter
                 CheckStatus.Unsupported => $"Not checked: unsupported type ({check.Detail}).",
                 _ => $"Check failed: {check.Detail}",
             };
-            embed.AddField(FieldName(check.Attachment), Truncate(value, EmbedFieldBuilder.MaxFieldValueLength));
+            embed.AddField(FieldName(check.Image), Truncate(value, EmbedFieldBuilder.MaxFieldValueLength));
         }
 
         return embed.Build();
     }
 
-    public static string BuildPublicReply(IEnumerable<AttachmentCheck> detected)
+    public static string BuildPublicReply(IEnumerable<ImageCheck> detected)
     {
         var signals = detected
             .SelectMany(c => c.Result!.Results)
@@ -71,6 +82,11 @@ public static class ReportFormatter
             .Distinct();
         return $"An image in this message contains OpenAI provenance signals ({string.Join(", ", signals)}).";
     }
+
+    // DMs have no channel to mention, only the jump link.
+    private static string DescribeMessage(ScanJob job) =>
+        (job.GuildId is null ? $"<@{job.AuthorId}> in a DM" : $"<@{job.AuthorId}> in <#{job.ChannelId}>")
+        + $"\n[Jump to message]({job.JumpUrl})";
 
     private static string FormatSignals(ProvenanceCheck result, bool detectedOnly)
     {
@@ -117,12 +133,7 @@ public static class ReportFormatter
         _ => type,
     };
 
-    private static string FieldName(IAttachment attachment) =>
-        Truncate(attachment.Filename, EmbedFieldBuilder.MaxFieldNameLength);
-
-    // Spoilered images aren't shown as thumbnails.
-    private static bool IsSpoiler(IAttachment attachment) =>
-        attachment.Filename.StartsWith("SPOILER_", StringComparison.Ordinal);
+    private static string FieldName(ImageSource image) => Truncate(image.Name, MaxFieldNameLength);
 
     private static string Truncate(string text, int maxLength) =>
         text.Length <= maxLength ? text : text[..(maxLength - 1)] + "…";
