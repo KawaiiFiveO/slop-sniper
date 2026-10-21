@@ -10,10 +10,9 @@ public static class ReportFormatter
     private static readonly Color DetectedColor = new(0xE67E22);
     private static readonly Color ClearColor = new(0x95A5A6);
 
-    private const string DetectedFooter = "Shows that a supported OpenAI signal is present. It doesn't identify who generated the image.";
+    private const string DetectedFooter = "Detected content was generated using OpenAI tools.";
 
-    private const string NotDetectedFooter =
-        "Not detected doesn't mean human-made: screenshots and edits remove the signals, and other AI providers aren't detected.";
+    private const string NotDetectedFooter = "Not proof it's human-made. Other AI providers aren't detected.";
 
     /// <summary>The private report for an automatic scan, sent to the log channel.</summary>
     public static Embed BuildDetectionEmbed(ScanJob job, IReadOnlyList<AttachmentCheck> detected)
