@@ -12,6 +12,8 @@ Discord bot that checks posted images for slop and scams. Each feature is a modu
 
 `/sniper-reload` - Re-read `config.json` without restarting. Works anywhere, including DMs with the bot. (Bot owner)
 
+Scam alerts have an Undo button that lifts the timeout. (Moderate Members)
+
 `/sniper` permissions can be changed in Server Settings > Integrations. Changing `GuildId` removes the commands from the previous server on the next start.
 
 ## Config
@@ -45,6 +47,24 @@ Copy `config.example.json` to `config.json` next to the binary.
 `Provenance.QueueCapacity` - Messages waiting to be checked before new ones are dropped.
 
 `Provenance.CacheHours` - Reuse the result for an identical file for this long. (0 to disable)
+
+### ScamImages
+
+Catches hijacked accounts posting the same scam screenshots across channels: deletes every copy, times out the author and alerts the log channel. Moderators, the owner, bots and webhooks are never acted on. The bot needs Manage Messages and Moderate Members, and its role must be above the members it times out.
+
+`ScamImages.Enabled` - Scam image detection in `GuildId`. (Restart to change)
+
+`ScamImages.BurstWindowSeconds` - How long after a post the same images elsewhere count as a burst. (10-600)
+
+`ScamImages.BurstChannels` - Act when the same images are posted to this many channels. (2-20; 2 is enough if the post looks like a scam post)
+
+`ScamImages.ShapeMinImages` - Posts with at least this many images and little text look like scam posts.
+
+`ScamImages.DeleteMessages` - Delete the posts.
+
+`ScamImages.TimeoutMinutes` - Time out the author for this long. (0 to disable, max 40320)
+
+`ScamImages.ExemptRoleIds` - Role IDs that are never acted on.
 
 Any setting can be overridden with a `SLOPSNIPER_` environment variable, with `__` between section and key, e.g. `SLOPSNIPER_Provenance__OpenAiApiKey`.
 

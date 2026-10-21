@@ -100,7 +100,7 @@ public static class ImageFormats
             : (null, null);
         if (proxyUrl is not null && IsDiscordProxyUrl(proxyUrl))
         {
-            yield return new ImageSource(DescribeOrigin(url), proxyUrl, null, null, null, false);
+            yield return new ImageSource(DescribeOrigin(url), proxyUrl, null, null, null, false, ProxyUrl: proxyUrl);
         }
     }
 

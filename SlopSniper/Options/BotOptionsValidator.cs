@@ -19,12 +19,13 @@ public sealed class BotOptionsValidator : IValidateOptions<BotOptions>
             errors.Add("LogChannelId is required when GuildId is set.");
         }
 
-        if (!options.Provenance.Enabled)
+        if (!options.Provenance.Enabled && !options.ScamImages.Enabled)
         {
-            errors.Add("No module is enabled. Set Provenance.Enabled to true.");
+            errors.Add("No module is enabled. Set Provenance.Enabled or ScamImages.Enabled to true.");
         }
 
         options.Provenance.Validate(errors);
+        options.ScamImages.Validate(errors, options.GuildId);
 
         return errors.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(errors);
     }

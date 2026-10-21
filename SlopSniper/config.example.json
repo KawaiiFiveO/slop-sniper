@@ -13,5 +13,14 @@
     "RequestIntervalSeconds": 3,
     "QueueCapacity": 100,
     "CacheHours": 24
+  },
+  "ScamImages": {
+    "Enabled": true,
+    "BurstWindowSeconds": 60,
+    "BurstChannels": 3,
+    "ShapeMinImages": 3,
+    "DeleteMessages": true,
+    "TimeoutMinutes": 1440,
+    "ExemptRoleIds": []
   }
 }

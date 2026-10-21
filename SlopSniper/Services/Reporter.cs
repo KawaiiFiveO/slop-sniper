@@ -15,7 +15,9 @@ public sealed class Reporter(DiscordSocketClient client, IOptionsMonitor<BotOpti
     /// <summary>Posts a notice for moderators, such as OpenAI checks being suspended.</summary>
     public Task SendAlertAsync(string text) => SendToLogChannelAsync(text: text);
 
-    public async Task SendToLogChannelAsync(string? text = null, Embed? embed = null)
+    /// <param name="file">Attached to the message, e.g. evidence an embed refers to as <c>attachment://name</c>.</param>
+    public async Task SendToLogChannelAsync(
+        string? text = null, Embed? embed = null, MessageComponent? components = null, FileAttachment? file = null)
     {
         // No log channel in user-app-only mode (GuildId 0); results are only shown to whoever ran the check.
         var channelId = options.CurrentValue.LogChannelId;
@@ -31,7 +33,14 @@ public sealed class Reporter(DiscordSocketClient client, IOptionsMonitor<BotOpti
 
         try
         {
-            await channel.SendMessageAsync(text, embed: embed, allowedMentions: NoMentions);
+            if (file is { } attachment)
+            {
+                await channel.SendFileAsync(attachment, text, embed: embed, components: components, allowedMentions: NoMentions);
+            }
+            else
+            {
+                await channel.SendMessageAsync(text, embed: embed, components: components, allowedMentions: NoMentions);
+            }
         }
         catch (Exception ex) when (ex is Discord.Net.HttpException or TimeoutException)
         {

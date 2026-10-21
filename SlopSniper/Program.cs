@@ -11,6 +11,7 @@ using SlopSniper;
 using SlopSniper.Modules;
 using SlopSniper.Options;
 using SlopSniper.Provenance;
+using SlopSniper.ScamImages;
 using SlopSniper.Services;
 using SlopSniper.State;
 
@@ -79,6 +80,10 @@ builder.Services.AddSingleton(new CommandModule(typeof(ReloadCommand), Global: t
 // Hosted services stop in reverse order: the scanner stops taking messages, then the modules' queues stop, then
 // the Discord client disconnects. So modules are added between the two.
 builder.Services.AddHostedService<BotHostedService>();
+if (IsEnabled("ScamImages"))
+{
+    builder.Services.AddScamImages();
+}
 if (IsEnabled("Provenance"))
 {
     builder.Services.AddProvenance();
