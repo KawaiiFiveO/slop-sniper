@@ -50,12 +50,10 @@ Releases are built by GitHub Actions when a `v*` tag is pushed (`v1.0.0-rc1` sty
 git tag v1.0.0 && git push origin v1.0.0
 ```
 
-Install on Linux, from the bot directory. If the repo is private, put a GitHub token with read access to it in `.github-token`.
+Install on Linux, from the bot directory.
 
 ```
-curl -fsSL -H "Authorization: Bearer $(cat .github-token)" -H "Accept: application/vnd.github.raw+json" \
-  -o update.sh https://api.github.com/repos/KawaiiFiveO/slop-sniper/contents/deploy/update.sh
-chmod +x update.sh && ./update.sh
+curl -fL https://github.com/KawaiiFiveO/slop-sniper/releases/latest/download/slop-sniper-linux-x64.tar.gz | tar -xz
 cp config.example.json config.json    # then fill it in
 sudo ./install.sh                     # installs and starts the slop-sniper systemd service
 ```
