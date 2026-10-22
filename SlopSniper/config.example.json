@@ -24,6 +24,8 @@
     "ExemptRoleIds": [],
     "HashDistance": 8,
     "MaxKnownImages": 500,
-    "TrustedDomains": []
+    "TrustedDomains": [],
+    "OcrCommand": "tesseract",
+    "OcrAllImages": false
   }
 }

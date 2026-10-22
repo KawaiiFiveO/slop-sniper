@@ -70,6 +70,10 @@ Copy `config.example.json` to `config.json` next to the binary.
 
 `Scams.TrustedDomains` - Domains never learned as scam domains, besides a built-in list of big sites.
 
+`Scams.OcrCommand` - Command that reads text in suspicious images (`apt install tesseract-ocr`). (Empty to disable; works without it)
+
+`Scams.OcrAllImages` - Read text in every image post, not only suspicious ones. (Slower; alone it only alerts)
+
 Any setting can be overridden with a `SLOPSNIPER_` environment variable, e.g. `SLOPSNIPER_Provenance__OpenAiApiKey`.
 
 ## Deployment

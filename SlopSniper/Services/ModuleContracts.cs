@@ -16,6 +16,12 @@ public interface IMessageModule
     /// <summary>Called for every message, with or without images. Runs on the gateway thread, so it may only filter
     /// and enqueue, never wait on the network.</summary>
     void OnMessage(SocketUserMessage message, SocketGuildChannel channel, IReadOnlyList<ImageSource> images);
+
+    /// <summary>Called when Discord adds link previews with images to a recent message, which it does a moment after
+    /// the message arrives. Also on the gateway thread. Ignored unless a module needs it.</summary>
+    void OnLinkPreviews(SocketUserMessage message, SocketGuildChannel channel, IReadOnlyList<ImageSource> previews)
+    {
+    }
 }
 
 /// <summary>A module's part of /sniper status.</summary>

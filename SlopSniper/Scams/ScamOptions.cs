@@ -38,6 +38,14 @@ public sealed class ScamOptions
     /// <summary>Domains never learned as scam domains, with their subdomains. Adds to a built-in list of big sites.</summary>
     public List<string> TrustedDomains { get; set; } = [];
 
+    /// <summary>Tesseract, for reading the text in suspicious images. Empty turns OCR off; if it isn't installed, the
+    /// bot works without it.</summary>
+    public string OcrCommand { get; set; } = "tesseract";
+
+    /// <summary>Read the text in every image post, not only ones that already look suspicious. Slower, and on its own
+    /// it only ever raises a "possible scam" alert.</summary>
+    public bool OcrAllImages { get; set; }
+
     public void Validate(List<string> errors, ulong guildId)
     {
         if (!Enabled)

@@ -137,6 +137,11 @@ public static class ScamReportFormatter
         {
             lines.Add(signals.DomainMatches == 1 ? "Links to a known scam domain" : $"Links to {signals.DomainMatches} known scam domains");
         }
+        if (signals.Words != ScamWords.None)
+        {
+            var keywords = signals.Keywords is { Count: > 0 } found ? $": {string.Join(", ", found)}" : "";
+            lines.Add($"Scam words in the images ({ScamKeywords.Describe(signals.Words)}){keywords}");
+        }
         if (signals.Shape)
         {
             lines.Add($"{signals.ImageCount} images, little text");

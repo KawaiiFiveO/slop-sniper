@@ -19,6 +19,7 @@ namespace SlopSniper.Scams;
 public sealed class ScamDebugCommand(
     DiscordSocketClient client,
     ScamImageHasher hasher,
+    OcrRunner ocr,
     KnownScams known,
     BurstTracker tracker,
     ScamModerator moderator,
@@ -30,19 +31,27 @@ public sealed class ScamDebugCommand(
     private static readonly Color SuspiciousColor = new(0xE67E22);
     private static readonly Color NoneColor = new(0x95A5A6);
 
+    // Enough OCR text per image to see what tesseract made of it.
+    private const int MaxOcrText = 300;
+
     [IntegrationType(ApplicationIntegrationType.UserInstall)]
     [CommandContextType(InteractionContextType.Guild, InteractionContextType.BotDm, InteractionContextType.PrivateChannel)]
     [RequireBotOwner]
     [MessageCommand("Debug scam check")]
     public async Task Debug(IMessage message)
     {
-        // What the automatic scan sees: attachments, including forwarded ones, but not link previews, and the links in
-        // the text.
+        // What the automatic scan sees: attachments, including forwarded ones, and the links in the text. Link previews
+        // are checked separately when Discord adds them, so they're shown when there are no attachments.
         var content = ScamContent.From(message);
+        var fromPreviews = false;
+        if (content.Images.Count == 0 && ImageFormats.GetImages(message, includeLinkPreviews: true) is { Count: > 0 } previews)
+        {
+            content = content with { Images = previews };
+            fromPreviews = true;
+        }
         if (content.Images.Count == 0 && content.Domains.Count == 0)
         {
-            await RespondAsync("That message has no image attachments or links, so the scan skips it. (Link previews aren't scanned.)",
-                ephemeral: true);
+            await RespondAsync("That message has no images or links, so the scan skips it.", ephemeral: true);
             return;
         }
 
@@ -64,8 +73,18 @@ public sealed class ScamDebugCommand(
         var inHome = Context.Interaction.GuildId == startupOptions.Value.GuildId;
         var linkText = content.Domains.Count > 0 ? content.Text : null;
         var (channels, repeated, flagged) = inHome ? tracker.Inspect(message.Author.Id, images, linkText) : (0, Repeated.None, false);
-        var shape = ScamDetector.HasScamShape(images.Count, content.Text, settings);
+        var shape = !fromPreviews && ScamDetector.HasScamShape(images.Count, content.Text, settings);
         var signals = new ScamSignals(Math.Max(1, channels), repeated, shape, images.Count, matches, domainMatches);
+
+        // Always read here, but the words only count where the automatic scan would read them.
+        var wouldRead = ScamRules.ShouldRead(signals, settings) && ScamRules.Decide(signals, settings) != ScamVerdict.Scam;
+        var scan = images.Count > 0 && await ocr.IsAvailableAsync(lifetime.ApplicationStopping)
+            ? await ocr.ScanAsync(images, stopAtGroups: int.MaxValue, lifetime.ApplicationStopping)
+            : OcrScan.Empty;
+        if (wouldRead)
+        {
+            signals = signals with { Words = scan.Groups, Keywords = scan.Keywords };
+        }
         var verdict = ScamRules.Decide(signals, settings, out var reason);
         var author = inHome ? await DescribeAuthorAsync(message.Author, settings) : null;
 
@@ -79,7 +98,11 @@ public sealed class ScamDebugCommand(
             var value = i < hashes.Count
                 ? DescribeImage(hashes[i], nearest[i], settings.HashDistance)
                 : $"{DescribeFile(images[i])}\nNot hashed: only the first {ScamImageHasher.MaxImages} images of a post are.";
-            embed.AddField(Truncate(images[i].Name, 100), value);
+            if (i < scan.Images.Count)
+            {
+                value += "\n" + DescribeOcr(scan.Images[i]);
+            }
+            embed.AddField(Truncate(images[i].Name, 100), Truncate(value, 1024));
         }
 
         if (content.Domains.Count > 0)
@@ -90,6 +113,15 @@ public sealed class ScamDebugCommand(
         var post = new StringBuilder()
             .Append(CultureInfo.InvariantCulture, $"Images: {images.Count} · links: {content.Domains.Count} · text: {content.Text.Length} chars · ")
             .Append(CultureInfo.InvariantCulture, $"scam shape: {(shape ? "yes" : "no")} (needs {settings.ShapeMinImages}+ images and little text)\n");
+        if (fromPreviews)
+        {
+            post.Append("The images are link previews, which are checked when Discord adds them.\n");
+        }
+        if (images.Count > 0)
+        {
+            post.Append(CultureInfo.InvariantCulture, $"OCR: {ocr.Status}. ")
+                .Append(wouldRead ? "The scan would read this post.\n" : "The scan wouldn't read this post, so its words don't count here.\n");
+        }
         if (inHome)
         {
             var what = repeated switch
@@ -162,6 +194,21 @@ public sealed class ScamDebugCommand(
             .Append(match.Distance <= maxDistance ? "**a match**" : "not a match")
             .Append(CultureInfo.InvariantCulture, $" ({match.Known.Origin}, event {match.Known.EventId}, {added})")
             .ToString();
+    }
+
+    private static string DescribeOcr(OcrResult result)
+    {
+        if (result.Text is not { } text)
+        {
+            return $"OCR failed: {result.Error}.";
+        }
+
+        var words = result.Groups == ScamWords.None
+            ? "no scam words"
+            : $"{ScamKeywords.Describe(result.Groups)}: {string.Join(", ", result.Keywords)}";
+        var shown = string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)).Replace('`', '\'');
+        return string.Create(CultureInfo.InvariantCulture, $"OCR ({result.Elapsed.TotalMilliseconds:0} ms): {words}")
+            + (shown.Length > 0 ? $"\n```\n{Truncate(shown, MaxOcrText)}\n```" : "");
     }
 
     private static string DescribeFile(ImageSource image)

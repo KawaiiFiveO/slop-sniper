@@ -11,6 +11,7 @@ public static class ScamRegistration
         services.AddSingleton<BurstTracker>();
         services.AddSingleton<KnownScams>();
         services.AddSingleton<ScamImageHasher>();
+        services.AddSingleton<OcrRunner>();
         services.AddSingleton<ScamStats>();
         services.AddSingleton<ScamModerator>();
         services.AddSingleton<ScamResponder>();

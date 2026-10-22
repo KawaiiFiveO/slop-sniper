@@ -7,13 +7,14 @@ using SlopSniper.Options;
 
 namespace SlopSniper.Scams;
 
-/// <summary>Works through scam jobs one at a time: compares posts with known scam images, asks the moderators about
-/// possible scams, and carries out detections. Separate from the provenance queue, so it never waits behind OpenAI's throttle.</summary>
+/// <summary>Works through scam jobs one at a time: compares posts with known scam images, reads the text in suspicious
+/// ones, asks the moderators about possible scams, and carries out detections. Separate from the provenance queue, so it never waits behind OpenAI's throttle.</summary>
 public sealed class ScamQueue(
     DiscordSocketClient client,
     BurstTracker tracker,
     KnownScams known,
     ScamImageHasher hasher,
+    OcrRunner ocr,
     ScamResponder responder,
     ScamModerator moderator,
     ScamStats stats,
@@ -50,6 +51,7 @@ public sealed class ScamQueue(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await known.LoadAsync();
+        await ocr.IsAvailableAsync(stoppingToken);
         try
         {
             while (!stoppingToken.IsCancellationRequested)
@@ -96,8 +98,20 @@ public sealed class ScamQueue(
             ? await hasher.HashAsync(candidate.Content.Images, cancellationToken)
             : null;
         var signals = candidate.Signals with { HashMatches = hashes is null ? 0 : known.CountImageMatches(hashes) };
-        var verdict = ScamRules.Decide(signals, options.CurrentValue.Scams);
-        if (verdict == ScamVerdict.None)
+        var settings = options.CurrentValue.Scams;
+        var verdict = ScamRules.Decide(signals, settings);
+
+        if (verdict != ScamVerdict.Scam && ScamRules.ShouldRead(signals, settings) && await ocr.IsAvailableAsync(cancellationToken))
+        {
+            // No rule needs more than 3 groups.
+            var scan = await ocr.ScanAsync(candidate.Content.Images, stopAtGroups: 3, cancellationToken);
+            signals = signals with { Words = scan.Groups, Keywords = scan.Keywords };
+            verdict = ScamRules.Decide(signals, settings);
+        }
+
+        // The post itself was checked when it arrived; its link previews only count for what they add.
+        if (verdict == ScamVerdict.None
+            || (candidate.LinkPreview && signals.HashMatches == 0 && ScamKeywords.Count(signals.Words) < 2))
         {
             return;
         }

@@ -19,6 +19,8 @@ public enum Repeated
 /// <param name="Shape">Several images and little text, like the typical scam post.</param>
 /// <param name="HashMatches">Images that look like a known scam image.</param>
 /// <param name="DomainMatches">Links to a known scam domain.</param>
+/// <param name="Words">Word groups read in the images.</param>
+/// <param name="Keywords">The words that hit them.</param>
 /// <param name="ReportedBy">Mention of the moderator who used "Report as scam".</param>
 public sealed record ScamSignals(
     int Channels,
@@ -27,6 +29,8 @@ public sealed record ScamSignals(
     int ImageCount,
     int HashMatches = 0,
     int DomainMatches = 0,
+    ScamWords Words = ScamWords.None,
+    IReadOnlyList<string>? Keywords = null,
     string? ReportedBy = null);
 
 /// <summary>What a post contains that the scam checks look at.</summary>
@@ -63,15 +67,18 @@ public sealed record ScamDetection(
     ScamSignals Signals,
     IReadOnlyList<ulong>? Hashes = null) : ScamJob(AuthorId, Post);
 
-/// <summary>A post that isn't a scam by its metadata and links alone, to compare against known scam images, or to
-/// ask the moderators about.</summary>
+/// <summary>A post that isn't a scam by its metadata and links alone: to compare against known scam images, to read
+/// the text in, or to ask the moderators about.</summary>
+/// <param name="LinkPreview">The images are link previews Discord added after the post. Only acted on if they add a
+/// known image or scam words, since the post itself was already checked.</param>
 public sealed record ScamCandidate(
     ulong AuthorId,
     PostRef Post,
     DateTimeOffset Timestamp,
     ScamContent Content,
     IReadOnlyList<PostRef> Posts,
-    ScamSignals Signals) : ScamJob(AuthorId, Post);
+    ScamSignals Signals,
+    bool LinkPreview = false) : ScamJob(AuthorId, Post);
 
 /// <summary>Another post with images or links by an author who was already acted on: delete it without a new
 /// alert.</summary>
