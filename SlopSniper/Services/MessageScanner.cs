@@ -7,8 +7,8 @@ using SlopSniper.State;
 
 namespace SlopSniper.Services;
 
-/// <summary>Hands new messages with images in GuildId to every enabled module that isn't paused. Runs on the gateway
-/// thread, so it only filters; the modules do their work on their own queues.</summary>
+/// <summary>Hands new messages in GuildId to every enabled module that isn't paused. Runs on the gateway thread, so it
+/// and the modules only filter; the modules do their work on their own queues.</summary>
 public sealed class MessageScanner(
     DiscordSocketClient client,
     IEnumerable<IMessageModule> modules,
@@ -45,11 +45,6 @@ public sealed class MessageScanner(
 
         // Link previews are only checked manually.
         var images = ImageFormats.GetImages(message, includeLinkPreviews: false);
-        if (images.Count == 0)
-        {
-            return;
-        }
-
         var paused = await state.ReadAsync(s => s.PausedModules.ToArray());
         foreach (var module in _modules.Where(m => !paused.Contains(m.Name)))
         {

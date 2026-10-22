@@ -1,5 +1,5 @@
 using SlopSniper.Provenance;
-using SlopSniper.ScamImages;
+using SlopSniper.Scams;
 
 namespace SlopSniper.Options;
 
@@ -25,5 +25,5 @@ public sealed class BotOptions
 
     public ProvenanceOptions Provenance { get; set; } = new();
 
-    public ScamImageOptions ScamImages { get; set; } = new();
+    public ScamOptions Scams { get; set; } = new();
 }

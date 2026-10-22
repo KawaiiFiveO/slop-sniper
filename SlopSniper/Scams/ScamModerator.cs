@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SlopSniper.Options;
 
-namespace SlopSniper.ScamImages;
+namespace SlopSniper.Scams;
 
 /// <param name="Deleted">Copies deleted, including ones that were already gone.</param>
 /// <param name="DeleteError">Why some copies couldn't be deleted, if any couldn't.</param>
@@ -20,12 +20,12 @@ public sealed class ScamModerator(
     IOptionsMonitor<BotOptions> options,
     ILogger<ScamModerator> logger)
 {
-    private const string FollowUpReason = "slop-sniper: more posts from an account already acted on for scam images";
+    private const string FollowUpReason = "slop-sniper: more posts from an account already acted on for scams";
 
     /// <param name="auditReason">Shown in Discord's audit log for the deletes and the timeout.</param>
     public async Task<ScamActions> ActAsync(ulong authorId, IReadOnlyList<PostRef> posts, string auditReason)
     {
-        var settings = options.CurrentValue.ScamImages;
+        var settings = options.CurrentValue.Scams;
 
         var (deleted, deleteError) = settings.DeleteMessages ? await DeleteAsync(posts, auditReason) : (0, null);
 
@@ -48,7 +48,7 @@ public sealed class ScamModerator(
     /// <summary>Deletes one more copy from an author who was already acted on.</summary>
     public async Task<bool> DeleteFollowUpAsync(PostRef post)
     {
-        if (!options.CurrentValue.ScamImages.DeleteMessages)
+        if (!options.CurrentValue.Scams.DeleteMessages)
         {
             return false;
         }
@@ -74,14 +74,14 @@ public sealed class ScamModerator(
             return;
         }
 
-        var settings = options.CurrentValue.ScamImages;
+        var settings = options.CurrentValue.Scams;
         if (settings.DeleteMessages && !permissions.ManageMessages)
         {
-            logger.LogWarning("ScamImages: the bot lacks Manage Messages, so it can't delete scam posts.");
+            logger.LogWarning("Scams: the bot lacks Manage Messages, so it can't delete scam posts.");
         }
         if (settings.TimeoutMinutes > 0 && !permissions.ModerateMembers)
         {
-            logger.LogWarning("ScamImages: the bot lacks Moderate Members, so it can't time out scam posters.");
+            logger.LogWarning("Scams: the bot lacks Moderate Members, so it can't time out scam posters.");
         }
     }
 

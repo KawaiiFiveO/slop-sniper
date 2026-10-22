@@ -13,7 +13,8 @@ public interface IMessageModule
     /// <summary>How the module is called in replies and alerts, e.g. "scam detection".</summary>
     string DisplayName { get; }
 
-    /// <summary>Runs on the gateway thread, so it may only filter and enqueue, never wait on the network.</summary>
+    /// <summary>Called for every message, with or without images. Runs on the gateway thread, so it may only filter
+    /// and enqueue, never wait on the network.</summary>
     void OnMessage(SocketUserMessage message, SocketGuildChannel channel, IReadOnlyList<ImageSource> images);
 }
 

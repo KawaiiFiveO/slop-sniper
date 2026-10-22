@@ -12,7 +12,7 @@ Discord bot that checks posted images for OpenAI provenance signals (C2PA and Sy
 
 `/sniper-reload` - Re-read `config.json` without restarting. (Bot owner)
 
-`Report as scam` (message context menu) - Delete the post, time out its author and remember its images. (Moderate Members)
+`Report as scam` (message context menu) - Delete the post, time out its author and remember its images and link domains. (Moderate Members)
 
 `Debug scam check` (message context menu) - Show how the scam checks score a message, without acting. (Bot owner, user install)
 
@@ -50,23 +50,25 @@ Copy `config.example.json` to `config.json` next to the binary.
 
 `Provenance.CacheHours` - Reuse the result for an identical file for this long. (0 to disable)
 
-`ScamImages.Enabled` - Delete scam image posts in `GuildId` and time out the author. (Needs Manage Messages and Moderate Members; restart to change)
+`Scams.Enabled` - Delete scam posts (images or links) in `GuildId` and time out the author. (Needs Manage Messages and Moderate Members; restart to change)
 
-`ScamImages.BurstWindowSeconds` - Window for spotting the same images in several channels. (10-600)
+`Scams.BurstWindowSeconds` - Window for spotting the same post in several channels. (10-600)
 
-`ScamImages.BurstChannels` - Act when the same images appear in this many channels. (2-20)
+`Scams.BurstChannels` - Act when the same images, or the same text with a link, appear in this many channels. (2-20)
 
-`ScamImages.ShapeMinImages` - Image count that, with little text, looks like a scam post.
+`Scams.ShapeMinImages` - Image count that, with little text, looks like a scam post.
 
-`ScamImages.DeleteMessages` - Delete the posts.
+`Scams.DeleteMessages` - Delete the posts.
 
-`ScamImages.TimeoutMinutes` - Timeout length. (0 to disable, max 40320)
+`Scams.TimeoutMinutes` - Timeout length. (0 to disable, max 40320)
 
-`ScamImages.ExemptRoleIds` - Role IDs that are never acted on. (Moderators never are)
+`Scams.ExemptRoleIds` - Role IDs that are never acted on. (Moderators never are)
 
-`ScamImages.HashDistance` - Max bits (of 64) an image can differ from a known scam image. (0-16)
+`Scams.HashDistance` - Max bits (of 64) an image can differ from a known scam image. (0-16)
 
-`ScamImages.MaxKnownImages` - Known scam images to keep. (10-5000)
+`Scams.MaxKnownImages` - Known scam images to keep. (10-5000)
+
+`Scams.TrustedDomains` - Domains never learned as scam domains, besides a built-in list of big sites.
 
 Any setting can be overridden with a `SLOPSNIPER_` environment variable, e.g. `SLOPSNIPER_Provenance__OpenAiApiKey`.
 

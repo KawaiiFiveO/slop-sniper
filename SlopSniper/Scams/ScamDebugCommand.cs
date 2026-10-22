@@ -11,7 +11,7 @@ using SlopSniper.Options;
 using SlopSniper.Provenance;
 using SlopSniper.Services;
 
-namespace SlopSniper.ScamImages;
+namespace SlopSniper.Scams;
 
 /// <summary>Right-click a message > Apps > Debug scam check. Runs the scam checks on any message and shows how they
 /// add up, for testing the rules. Never acts and never learns anything. Owner only, and only when the app is
@@ -19,7 +19,7 @@ namespace SlopSniper.ScamImages;
 public sealed class ScamDebugCommand(
     DiscordSocketClient client,
     ScamImageHasher hasher,
-    ScamHashStore known,
+    KnownScams known,
     BurstTracker tracker,
     ScamModerator moderator,
     IOptions<BotOptions> startupOptions,
@@ -36,31 +36,36 @@ public sealed class ScamDebugCommand(
     [MessageCommand("Debug scam check")]
     public async Task Debug(IMessage message)
     {
-        // The same images the automatic scan sees: attachments, including forwarded ones, but not link previews.
-        var images = ImageFormats.GetImages(message, includeLinkPreviews: false);
-        if (images.Count == 0)
+        // What the automatic scan sees: attachments, including forwarded ones, but not link previews, and the links in
+        // the text.
+        var content = ScamContent.From(message);
+        if (content.Images.Count == 0 && content.Domains.Count == 0)
         {
-            await RespondAsync("That message has no image attachments. (Link previews aren't scanned.)", ephemeral: true);
+            await RespondAsync("That message has no image attachments or links, so the scan skips it. (Link previews aren't scanned.)",
+                ephemeral: true);
             return;
         }
 
         await DeferAsync(ephemeral: true);
-        var settings = options.CurrentValue.ScamImages;
+        var settings = options.CurrentValue.Scams;
         var stopwatch = Stopwatch.StartNew();
+        var images = content.Images;
 
         List<ImageHash> hashes = [];
         foreach (var image in images.Take(ScamImageHasher.MaxImages))
         {
             hashes.Add(await hasher.HashImageAsync(image, lifetime.ApplicationStopping));
         }
-        var nearest = hashes.Select(h => h.Hash is { } hash ? known.FindNearest(hash) : null).ToList();
+        var nearest = hashes.Select(h => h.Hash is { } hash ? known.FindNearestImage(hash) : null).ToList();
         var matches = nearest.Count(n => n?.Distance <= settings.HashDistance);
+        var domainMatches = known.CountDomainMatches(content.Domains);
 
         // Burst and exemptions only mean something where the bot scans.
         var inHome = Context.Interaction.GuildId == startupOptions.Value.GuildId;
-        var (channels, flagged) = inHome ? tracker.Inspect(message.Author.Id, images) : (0, false);
-        var shape = ScamDetector.HasScamShape(images.Count, message.Content, settings);
-        var signals = new ScamSignals(Math.Max(1, channels), shape, images.Count, matches);
+        var linkText = content.Domains.Count > 0 ? content.Text : null;
+        var (channels, repeated, flagged) = inHome ? tracker.Inspect(message.Author.Id, images, linkText) : (0, Repeated.None, false);
+        var shape = ScamDetector.HasScamShape(images.Count, content.Text, settings);
+        var signals = new ScamSignals(Math.Max(1, channels), repeated, shape, images.Count, matches, domainMatches);
         var verdict = ScamRules.Decide(signals, settings, out var reason);
         var author = inHome ? await DescribeAuthorAsync(message.Author, settings) : null;
 
@@ -77,12 +82,24 @@ public sealed class ScamDebugCommand(
             embed.AddField(Truncate(images[i].Name, 100), value);
         }
 
+        if (content.Domains.Count > 0)
+        {
+            embed.AddField("Links", Truncate(string.Join('\n', content.Domains.Select(d => DescribeDomain(d, settings))), 1024));
+        }
+
         var post = new StringBuilder()
-            .Append(CultureInfo.InvariantCulture, $"Images: {images.Count} · text: {message.Content.Length} chars · scam shape: {(shape ? "yes" : "no")} ")
-            .Append(CultureInfo.InvariantCulture, $"(needs {settings.ShapeMinImages}+ images and little text)\n");
+            .Append(CultureInfo.InvariantCulture, $"Images: {images.Count} · links: {content.Domains.Count} · text: {content.Text.Length} chars · ")
+            .Append(CultureInfo.InvariantCulture, $"scam shape: {(shape ? "yes" : "no")} (needs {settings.ShapeMinImages}+ images and little text)\n");
         if (inHome)
         {
-            post.Append(CultureInfo.InvariantCulture, $"Burst: {channels} channel(s) with these images in the last {settings.BurstWindowSeconds}s")
+            var what = repeated switch
+            {
+                Repeated.LinkText => "the same text and link",
+                Repeated.Images | Repeated.LinkText => "the same images and text",
+                Repeated.Images => "the same images",
+                _ => linkText is null ? "these images" : "these images or this text and link",
+            };
+            post.Append(CultureInfo.InvariantCulture, $"Burst: {channels} channel(s) with {what} in the last {settings.BurstWindowSeconds}s")
                 .Append(" (counts only posts the bot saw arrive)\n")
                 .Append(CultureInfo.InvariantCulture, $"Author: {author}");
             if (flagged)
@@ -98,15 +115,31 @@ public sealed class ScamDebugCommand(
 
         var outcome = verdict switch
         {
-            ScamVerdict.Scam => "**Scam**: would delete, time out and learn the images",
+            ScamVerdict.Scam => "**Scam**: would delete, time out and learn the images and domains",
             ScamVerdict.Suspicious => "**Possible scam**: would ask the moderators",
             _ => "**Nothing**",
         };
         embed.AddField("Verdict", $"{outcome}.\nRule: {reason}.");
         embed.WithFooter(string.Create(CultureInfo.InvariantCulture,
-            $"{known.Count} known scam images · match within {settings.HashDistance} bits · took {stopwatch.ElapsedMilliseconds} ms"));
+            $"{known.ImageCount} known scam images, {known.DomainCount} domains · match within {settings.HashDistance} bits · took {stopwatch.ElapsedMilliseconds} ms"));
 
         await FollowupAsync(embed: embed.Build(), ephemeral: true);
+    }
+
+    private string DescribeDomain(string domain, ScamOptions settings)
+    {
+        if (ScamLinks.IsTrusted(domain, settings.TrustedDomains))
+        {
+            return $"`{domain}`: trusted, never learned";
+        }
+        if (known.FindDomain(domain) is not { } match)
+        {
+            return $"`{domain}`: not a known scam domain";
+        }
+
+        var added = TimestampTag.FormatFromDateTimeOffset(match.AddedAt, TimestampTagStyles.Relative);
+        var via = match.Domain == domain ? "" : $" via `{match.Domain}`";
+        return $"`{domain}`: **known scam domain**{via} ({match.Origin}, event {match.EventId}, {added})";
     }
 
     private static string DescribeImage(ImageHash result, (KnownScamImage Known, int Distance)? nearest, int maxDistance)
@@ -149,7 +182,7 @@ public sealed class ScamDebugCommand(
         return parts.Count > 0 ? string.Join(" · ", parts) : "size unknown";
     }
 
-    private async Task<string> DescribeAuthorAsync(IUser user, ScamImageOptions settings)
+    private async Task<string> DescribeAuthorAsync(IUser user, ScamOptions settings)
     {
         if (user.IsWebhook)
         {

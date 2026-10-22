@@ -47,7 +47,7 @@ public sealed class SniperCommands(
     [SlashCommand("pause", "Stop automatic scanning, of everything or one module. Manual checks still work.")]
     public Task Pause(
         [Summary(description: "What to pause. Default: everything.")]
-        [Choice("everything", All), Choice("provenance checks (OpenAI)", nameof(BotOptions.Provenance)), Choice("scam detection", nameof(BotOptions.ScamImages))]
+        [Choice("everything", All), Choice("provenance checks (OpenAI)", nameof(BotOptions.Provenance)), Choice("scam detection", nameof(BotOptions.Scams))]
         string module = All) =>
         SetPausedAsync(module, paused: true);
 
@@ -55,7 +55,7 @@ public sealed class SniperCommands(
     [SlashCommand("resume", "Resume automatic scanning, of everything or one module.")]
     public Task Resume(
         [Summary(description: "What to resume. Default: everything.")]
-        [Choice("everything", All), Choice("provenance checks (OpenAI)", nameof(BotOptions.Provenance)), Choice("scam detection", nameof(BotOptions.ScamImages))]
+        [Choice("everything", All), Choice("provenance checks (OpenAI)", nameof(BotOptions.Provenance)), Choice("scam detection", nameof(BotOptions.Scams))]
         string module = All) =>
         SetPausedAsync(module, paused: false);
 

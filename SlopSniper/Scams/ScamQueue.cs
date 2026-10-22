@@ -5,14 +5,14 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SlopSniper.Options;
 
-namespace SlopSniper.ScamImages;
+namespace SlopSniper.Scams;
 
-/// <summary>Works through scam jobs one at a time: compares posts with known scam images, and carries out
-/// detections. Separate from the provenance queue, so it never waits behind OpenAI's throttle.</summary>
+/// <summary>Works through scam jobs one at a time: compares posts with known scam images, asks the moderators about
+/// possible scams, and carries out detections. Separate from the provenance queue, so it never waits behind OpenAI's throttle.</summary>
 public sealed class ScamQueue(
     DiscordSocketClient client,
     BurstTracker tracker,
-    ScamHashStore known,
+    KnownScams known,
     ScamImageHasher hasher,
     ScamResponder responder,
     ScamModerator moderator,
@@ -80,7 +80,7 @@ public sealed class ScamQueue(
                 break;
 
             case ScamDetection detection:
-                await responder.ActAsync(detection, ScamImageOrigin.Detected, alert: true, cancellationToken);
+                await responder.ActAsync(detection, ScamOrigin.Detected, alert: true, cancellationToken);
                 break;
 
             case ScamCandidate candidate:
@@ -91,16 +91,19 @@ public sealed class ScamQueue(
 
     private async Task CheckCandidateAsync(ScamCandidate candidate, CancellationToken cancellationToken)
     {
-        var hashes = await hasher.HashAsync(candidate.Images, cancellationToken);
-        var signals = candidate.Signals with { HashMatches = known.CountMatches(hashes) };
-        var verdict = ScamRules.Decide(signals, options.CurrentValue.ScamImages);
+        // Not hashed if there's nothing to compare with; acting hashes them anyway, to learn them.
+        var hashes = candidate.Content.Images.Count > 0 && known.ImageCount > 0
+            ? await hasher.HashAsync(candidate.Content.Images, cancellationToken)
+            : null;
+        var signals = candidate.Signals with { HashMatches = hashes is null ? 0 : known.CountImageMatches(hashes) };
+        var verdict = ScamRules.Decide(signals, options.CurrentValue.Scams);
         if (verdict == ScamVerdict.None)
         {
             return;
         }
 
         var detection = new ScamDetection(candidate.AuthorId, candidate.Post, candidate.Post.MessageId, candidate.Timestamp,
-            candidate.Images, candidate.Posts, signals, hashes);
+            candidate.Content, candidate.Posts, signals, hashes);
         if (verdict == ScamVerdict.Suspicious)
         {
             await responder.AlertSuspiciousAsync(detection, cancellationToken);
@@ -111,7 +114,7 @@ public sealed class ScamQueue(
         var eventId = tracker.Flag(candidate.AuthorId, detection.EventId);
         if (eventId == detection.EventId)
         {
-            await responder.ActAsync(detection, ScamImageOrigin.Detected, alert: true, cancellationToken);
+            await responder.ActAsync(detection, ScamOrigin.Detected, alert: true, cancellationToken);
         }
         else
         {
@@ -123,7 +126,7 @@ public sealed class ScamQueue(
     {
         var deleted = await moderator.DeleteFollowUpAsync(followUp.Post);
         stats.FollowUp(deleted);
-        logger.LogInformation("Another image post {MessageId} in {ChannelId} by flagged user {UserId} (event {EventId}){Action}.",
+        logger.LogInformation("Another post {MessageId} in {ChannelId} by flagged user {UserId} (event {EventId}){Action}.",
             followUp.Post.MessageId, followUp.Post.ChannelId, followUp.AuthorId, followUp.EventId, deleted ? ", deleted" : "");
     }
 

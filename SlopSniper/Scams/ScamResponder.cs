@@ -4,17 +4,17 @@ using Microsoft.Extensions.Options;
 using SlopSniper.Options;
 using SlopSniper.Services;
 
-namespace SlopSniper.ScamImages;
+namespace SlopSniper.Scams;
 
-/// <param name="Learned">New known scam images learned from the post.</param>
-public sealed record ScamOutcome(ScamActions Actions, int Learned);
+/// <param name="Learned">New known scam images and domains learned from the post.</param>
+public sealed record ScamOutcome(ScamActions Actions, KnownCounts Learned);
 
-/// <summary>Carries out a detection: keeps evidence, learns the images, deletes, times out and alerts. Shared by
+/// <summary>Carries out a detection: keeps evidence, learns the images and domains, deletes, times out and alerts. Shared by
 /// automatic detections, the alert buttons and "Report as scam".</summary>
 public sealed class ScamResponder(
     ScamModerator scamModerator,
     ScamImageHasher hasher,
-    ScamHashStore known,
+    KnownScams known,
     ImageDownloader downloader,
     Reporter reporter,
     ScamStats stats,
@@ -28,25 +28,25 @@ public sealed class ScamResponder(
     /// <param name="alert">False when the caller updates an existing alert instead of posting a new one.</param>
     /// <param name="moderator">Username of the moderator who reported or confirmed it, for the audit log.</param>
     public async Task<ScamOutcome> ActAsync(
-        ScamDetection detection, ScamImageOrigin origin, bool alert, CancellationToken cancellationToken, string? moderator = null)
+        ScamDetection detection, ScamOrigin origin, bool alert, CancellationToken cancellationToken, string? moderator = null)
     {
         // Both fetched first: deleting the posts deletes their attachments too.
-        var evidence = alert ? await GetEvidenceAsync(detection.Images, cancellationToken) : null;
-        var hashes = detection.Hashes ?? await hasher.HashAsync(detection.Images, cancellationToken);
-        var learned = await known.AddAsync(hashes, detection.EventId, origin);
+        var evidence = alert ? await GetEvidenceAsync(detection.Content.Images, cancellationToken) : null;
+        var hashes = detection.Hashes ?? await hasher.HashAsync(detection.Content.Images, cancellationToken);
+        var learned = await known.AddAsync(hashes, detection.Content.Domains, detection.EventId, origin);
 
         var actions = await scamModerator.ActAsync(detection.AuthorId, detection.Posts, GetAuditReason(detection.Signals, origin, moderator));
         var outcome = new ScamOutcome(actions, learned);
         stats.Record(actions);
         logger.LogInformation(
-            "Scam images by {UserId} (event {EventId}, {Origin}): deleted {Deleted} of {ToDelete} posts, timeout {Timeout}, learned {Learned} images.",
+            "Scam by {UserId} (event {EventId}, {Origin}): deleted {Deleted} of {ToDelete} posts, timeout {Timeout}, learned {Images} images and {Domains} domains.",
             detection.AuthorId, detection.EventId, origin, actions.Deleted, actions.ToDelete,
-            actions.TimedOutFor is not null ? "applied" : actions.TimeoutError ?? "off", learned);
+            actions.TimedOutFor is not null ? "applied" : actions.TimeoutError ?? "off", learned.Images, learned.Domains);
 
         if (alert)
         {
             var embed = ScamReportFormatter.BuildAlert(detection, outcome, startupOptions.Value.GuildId,
-                options.CurrentValue.ScamImages.BurstWindowSeconds, evidence?.FileName);
+                options.CurrentValue.Scams.BurstWindowSeconds, evidence?.FileName);
             await SendAsync(embed, ScamReportFormatter.BuildUndoButton(detection.EventId, detection.AuthorId), evidence);
         }
         return outcome;
@@ -56,24 +56,24 @@ public sealed class ScamResponder(
     public async Task AlertSuspiciousAsync(ScamDetection detection, CancellationToken cancellationToken)
     {
         stats.Suspicious();
-        logger.LogInformation("Possible scam images by {UserId} in message {MessageId}: {Matches} known image matches.",
-            detection.AuthorId, detection.Post.MessageId, detection.Signals.HashMatches);
+        logger.LogInformation("Possible scam by {UserId} in message {MessageId}: {Images} known image matches, {Domains} known domain matches.",
+            detection.AuthorId, detection.Post.MessageId, detection.Signals.HashMatches, detection.Signals.DomainMatches);
 
-        var evidence = await GetEvidenceAsync(detection.Images, cancellationToken);
+        var evidence = await GetEvidenceAsync(detection.Content.Images, cancellationToken);
         var embed = ScamReportFormatter.BuildSuspiciousAlert(detection, startupOptions.Value.GuildId,
-            options.CurrentValue.ScamImages.BurstWindowSeconds, evidence?.FileName);
+            options.CurrentValue.Scams.BurstWindowSeconds, evidence?.FileName);
         await SendAsync(embed, ScamReportFormatter.BuildSuspiciousButtons(detection.Post, detection.AuthorId), evidence);
     }
 
     /// <summary>Why the posts were deleted and the author timed out, for Discord's audit log.</summary>
-    private string GetAuditReason(ScamSignals signals, ScamImageOrigin origin, string? moderator)
+    private string GetAuditReason(ScamSignals signals, ScamOrigin origin, string? moderator)
     {
-        ScamRules.Decide(signals, options.CurrentValue.ScamImages, out var rule);
+        ScamRules.Decide(signals, options.CurrentValue.Scams, out var rule);
         return "slop-sniper: " + origin switch
         {
-            ScamImageOrigin.Reported => $"reported as scam by {moderator}",
-            ScamImageOrigin.Confirmed => $"possible scam confirmed by {moderator}",
-            _ => $"scam images ({rule})",
+            ScamOrigin.Reported => $"reported as scam by {moderator}",
+            ScamOrigin.Confirmed => $"possible scam confirmed by {moderator}",
+            _ => $"scam post ({rule})",
         };
     }
 

@@ -2,7 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using SlopSniper.Options;
-using SlopSniper.ScamImages;
+using SlopSniper.Scams;
 
 namespace SlopSniper.State;
 
@@ -20,8 +20,11 @@ public sealed class BotState
     /// <summary>The guild /sniper was last registered to, so its commands can be removed when GuildId changes.</summary>
     public ulong CommandsGuildId { get; set; }
 
-    /// <summary>Perceptual hashes of confirmed scam images (ScamImages module).</summary>
+    /// <summary>Perceptual hashes of confirmed scam images (Scams module).</summary>
     public List<KnownScamImage> KnownScamImages { get; set; } = [];
+
+    /// <summary>Domains that confirmed scam posts linked to (Scams module).</summary>
+    public List<KnownScamDomain> KnownScamDomains { get; set; } = [];
 }
 
 public sealed class StateStore(ILogger<StateStore> logger)
@@ -95,7 +98,7 @@ public sealed class StateStore(ILogger<StateStore> logger)
         // The old single flag paused every module.
         if (_state.ScanningPaused == true)
         {
-            _state.PausedModules = [nameof(BotOptions.Provenance), nameof(BotOptions.ScamImages)];
+            _state.PausedModules = [nameof(BotOptions.Provenance), nameof(BotOptions.Scams)];
         }
         _state.ScanningPaused = null;
 

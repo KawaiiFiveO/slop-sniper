@@ -1,9 +1,9 @@
-namespace SlopSniper.ScamImages;
+namespace SlopSniper.Scams;
 
-/// <summary>The "ScamImages" section: catches hijacked accounts posting scam screenshots (fake crypto giveaways,
-/// casino "withdrawals") across channels. Unlike provenance checks, this module deletes posts and times out the
-/// author.</summary>
-public sealed class ScamImageOptions
+/// <summary>The "Scams" section: catches hijacked accounts posting scam screenshots (fake crypto giveaways,
+/// casino "withdrawals") or scam links across channels. Unlike provenance checks, this module deletes posts and times
+/// out the author.</summary>
+public sealed class ScamOptions
 {
     // Discord's longest timeout.
     private const int MaxTimeoutMinutes = 28 * 24 * 60;
@@ -35,6 +35,9 @@ public sealed class ScamImageOptions
     /// <summary>Known scam images remembered. Past this, the oldest are forgotten.</summary>
     public int MaxKnownImages { get; set; } = 500;
 
+    /// <summary>Domains never learned as scam domains, with their subdomains. Adds to a built-in list of big sites.</summary>
+    public List<string> TrustedDomains { get; set; } = [];
+
     public void Validate(List<string> errors, ulong guildId)
     {
         if (!Enabled)
@@ -44,37 +47,46 @@ public sealed class ScamImageOptions
 
         if (guildId == 0)
         {
-            errors.Add("ScamImages needs GuildId: it only scans that server.");
+            errors.Add("Scams needs GuildId: it only scans that server.");
         }
 
         if (BurstWindowSeconds is < 10 or > 600)
         {
-            errors.Add("ScamImages.BurstWindowSeconds must be between 10 and 600.");
+            errors.Add("Scams.BurstWindowSeconds must be between 10 and 600.");
         }
 
         if (BurstChannels is < 2 or > 20)
         {
-            errors.Add("ScamImages.BurstChannels must be between 2 and 20.");
+            errors.Add("Scams.BurstChannels must be between 2 and 20.");
         }
 
         if (ShapeMinImages is < 1 or > 10)
         {
-            errors.Add("ScamImages.ShapeMinImages must be between 1 and 10.");
+            errors.Add("Scams.ShapeMinImages must be between 1 and 10.");
         }
 
         if (HashDistance is < 0 or > 16)
         {
-            errors.Add("ScamImages.HashDistance must be between 0 and 16.");
+            errors.Add("Scams.HashDistance must be between 0 and 16.");
         }
 
         if (MaxKnownImages is < 10 or > 5000)
         {
-            errors.Add("ScamImages.MaxKnownImages must be between 10 and 5000.");
+            errors.Add("Scams.MaxKnownImages must be between 10 and 5000.");
         }
 
         if (TimeoutMinutes is < 0 or > MaxTimeoutMinutes)
         {
-            errors.Add($"ScamImages.TimeoutMinutes must be between 0 and {MaxTimeoutMinutes} (28 days).");
+            errors.Add($"Scams.TimeoutMinutes must be between 0 and {MaxTimeoutMinutes} (28 days).");
+        }
+
+        foreach (var domain in TrustedDomains)
+        {
+            var normalized = ScamLinks.Normalize(domain);
+            if (!normalized.Contains('.') || Uri.CheckHostName(normalized) != UriHostNameType.Dns)
+            {
+                errors.Add($"Scams.TrustedDomains: \"{domain}\" isn't a domain like example.com.");
+            }
         }
     }
 }

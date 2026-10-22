@@ -1,4 +1,4 @@
-namespace SlopSniper.ScamImages;
+namespace SlopSniper.Scams;
 
 /// <summary>Scam detection counters since the bot started, shown by /sniper status.</summary>
 public sealed class ScamStats

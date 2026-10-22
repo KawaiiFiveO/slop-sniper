@@ -71,7 +71,8 @@ public static class ImageFormats
         || SupportedExtensions.Contains(GetExtension(attachment.Filename))
         || OtherImageExtensions.Contains(GetExtension(attachment.Filename));
 
-    private static IEnumerable<IMessage> WithForwarded(IMessage message)
+    /// <summary>The message, then the messages it forwards.</summary>
+    public static IEnumerable<IMessage> WithForwarded(IMessage message)
     {
         yield return message;
         if (message is IUserMessage { ForwardedMessages: { } snapshots })

@@ -15,6 +15,11 @@ public sealed class ProvenanceScanner(ProvenanceQueue queue, ProvenanceStats sta
 
     public void OnMessage(SocketUserMessage message, SocketGuildChannel channel, IReadOnlyList<ImageSource> images)
     {
+        if (images.Count == 0)
+        {
+            return;
+        }
+
         if (queue.TryEnqueue(ScanJob.Create(message, channel.Guild.Id, channel.Id, images)))
         {
             stats.MessageQueued();

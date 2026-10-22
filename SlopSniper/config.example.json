@@ -14,7 +14,7 @@
     "QueueCapacity": 100,
     "CacheHours": 24
   },
-  "ScamImages": {
+  "Scams": {
     "Enabled": true,
     "BurstWindowSeconds": 60,
     "BurstChannels": 3,
@@ -23,6 +23,7 @@
     "TimeoutMinutes": 1440,
     "ExemptRoleIds": [],
     "HashDistance": 8,
-    "MaxKnownImages": 500
+    "MaxKnownImages": 500,
+    "TrustedDomains": []
   }
 }

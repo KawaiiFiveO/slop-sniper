@@ -1,15 +1,15 @@
 using Microsoft.Extensions.DependencyInjection;
 using SlopSniper.Services;
 
-namespace SlopSniper.ScamImages;
+namespace SlopSniper.Scams;
 
-public static class ScamImageRegistration
+public static class ScamRegistration
 {
     /// <summary>Adds scam image detection in GuildId, which deletes scam posts and times out their author.</summary>
-    public static IServiceCollection AddScamImages(this IServiceCollection services)
+    public static IServiceCollection AddScams(this IServiceCollection services)
     {
         services.AddSingleton<BurstTracker>();
-        services.AddSingleton<ScamHashStore>();
+        services.AddSingleton<KnownScams>();
         services.AddSingleton<ScamImageHasher>();
         services.AddSingleton<ScamStats>();
         services.AddSingleton<ScamModerator>();

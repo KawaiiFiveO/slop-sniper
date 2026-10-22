@@ -2,7 +2,7 @@ using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using SlopSniper.Services;
 
-namespace SlopSniper.ScamImages;
+namespace SlopSniper.Scams;
 
 /// <param name="Hash">Null if the image couldn't be fetched or decoded.</param>
 /// <param name="Error">Why there's no hash.</param>

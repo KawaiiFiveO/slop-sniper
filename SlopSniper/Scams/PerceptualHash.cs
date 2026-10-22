@@ -1,7 +1,7 @@
 using System.Numerics;
 using SlopSniper.Services;
 
-namespace SlopSniper.ScamImages;
+namespace SlopSniper.Scams;
 
 /// <summary>64-bit perceptual hash (pHash): the image shrunk to 32×32 grayscale, its lowest 8×8 DCT frequencies
 /// compared to their median. Resizing, recompressing and small edits barely change it, so near-identical images

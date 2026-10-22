@@ -1,7 +1,7 @@
 using System.Text;
 using Discord;
 
-namespace SlopSniper.ScamImages;
+namespace SlopSniper.Scams;
 
 /// <summary>Builds the moderator alerts for scam detections and their buttons.</summary>
 public static class ScamReportFormatter
@@ -9,6 +9,11 @@ public static class ScamReportFormatter
     public const string UndoButtonPrefix = "scam-undo";
     public const string ConfirmButtonPrefix = "scam-act";
     public const string DismissButtonPrefix = "scam-ignore";
+
+    private const string UndoFooter = "Undo lifts the timeout and forgets images and domains. Deleted posts can't be restored.";
+
+    // Enough to recognise the scam; embed fields hold up to 1024 characters.
+    private const int MaxTextLength = 500;
 
     private static readonly Color ScamColor = new(0xE74C3C);
     private static readonly Color SuspiciousColor = new(0xE67E22);
@@ -20,19 +25,19 @@ public static class ScamReportFormatter
     {
         var actions = outcome.Actions;
         return BuildEmbed(detection, guildId, burstWindowSeconds, evidenceFile, showJumpLink: actions.Deleted < detection.Posts.Count)
-            .WithTitle(actions.Deleted > 0 ? "Scam images removed" : "Scam images detected")
+            .WithTitle(actions.Deleted > 0 ? "Scam post removed" : "Scam post detected")
             .WithColor(ScamColor)
             .AddField("Actions", FormatActions(outcome))
-            .WithFooter("Undo lifts the timeout and forgets images. Deleted posts can't be restored.")
+            .WithFooter(UndoFooter)
             .Build();
     }
 
     /// <summary>An alert that only asks the moderators, for a post that isn't certain enough to act on.</summary>
     public static Embed BuildSuspiciousAlert(ScamDetection detection, ulong guildId, int burstWindowSeconds, string? evidenceFile) =>
         BuildEmbed(detection, guildId, burstWindowSeconds, evidenceFile, showJumpLink: true)
-            .WithTitle("Possible scam images")
+            .WithTitle("Possible scam post")
             .WithColor(SuspiciousColor)
-            .AddField("Actions", "None yet. Not a scam also forgets the known images it matched.")
+            .AddField("Actions", "None yet. Not a scam also forgets the known images and domains it matched.")
             .Build();
 
     public static MessageComponent BuildUndoButton(ulong eventId, ulong authorId) =>
@@ -49,21 +54,21 @@ public static class ScamReportFormatter
     /// <summary>A "possible scam" alert after a moderator confirmed it.</summary>
     public static Embed MarkConfirmed(IEmbed alert, string moderator, ScamOutcome outcome) =>
         WithoutActions(alert)
-            .WithTitle(outcome.Actions.Deleted > 0 ? "Scam images removed" : "Scam images confirmed")
+            .WithTitle(outcome.Actions.Deleted > 0 ? "Scam post removed" : "Scam post confirmed")
             .WithColor(ScamColor)
             .AddField("Actions", $"Confirmed by {moderator}.\n{FormatActions(outcome)}")
-            .WithFooter("Undo lifts the timeout and forgets images. Deleted posts can't be restored.")
+            .WithFooter(UndoFooter)
             .Build();
 
     /// <summary>A "possible scam" alert after a moderator said it isn't one.</summary>
-    public static Embed MarkDismissed(IEmbed alert, string moderator, int forgotten) =>
+    public static Embed MarkDismissed(IEmbed alert, string moderator, KnownCounts forgotten) =>
         WithoutActions(alert)
             .WithColor(ClosedColor)
             .AddField("Not a scam", $"Marked by {moderator}. {FormatForgotten(forgotten)}")
             .Build();
 
     /// <summary>An alert after a moderator pressed Undo.</summary>
-    public static Embed MarkUndone(IEmbed alert, string moderator, string? timeoutError, int forgotten) =>
+    public static Embed MarkUndone(IEmbed alert, string moderator, string? timeoutError, KnownCounts forgotten) =>
         alert.ToEmbedBuilder()
             .WithColor(ClosedColor)
             .AddField("Undone", (timeoutError is null
@@ -96,6 +101,10 @@ public static class ScamReportFormatter
             .WithDescription(description.ToString())
             .AddField("Signals", FormatSignals(detection.Signals, burstWindowSeconds))
             .WithTimestamp(detection.Timestamp);
+        if (detection.Content.Text.Length > 0)
+        {
+            embed.AddField("Text", FormatText(detection.Content.Text));
+        }
         if (evidenceFile is not null)
         {
             embed.WithImageUrl($"attachment://{evidenceFile}");
@@ -112,11 +121,21 @@ public static class ScamReportFormatter
         }
         if (signals.Channels > 1)
         {
-            lines.Add($"Same images in {signals.Channels} channels within {burstWindowSeconds}s");
+            var repeated = signals.Repeated switch
+            {
+                Repeated.LinkText => "text and link",
+                Repeated.Images | Repeated.LinkText => "images and text",
+                _ => "images",
+            };
+            lines.Add($"Same {repeated} in {signals.Channels} channels within {burstWindowSeconds}s");
         }
         if (signals.HashMatches > 0)
         {
             lines.Add(signals.HashMatches == 1 ? "1 image looks like a known scam image" : $"{signals.HashMatches} images look like known scam images");
+        }
+        if (signals.DomainMatches > 0)
+        {
+            lines.Add(signals.DomainMatches == 1 ? "Links to a known scam domain" : $"Links to {signals.DomainMatches} known scam domains");
         }
         if (signals.Shape)
         {
@@ -155,20 +174,41 @@ public static class ScamReportFormatter
             lines.Add("Not timed out (TimeoutMinutes is 0).");
         }
 
-        if (outcome.Learned > 0)
+        if (outcome.Learned.Total > 0)
         {
-            lines.Add(outcome.Learned == 1 ? "Learned 1 new scam image." : $"Learned {outcome.Learned} new scam images.");
+            lines.Add($"Learned {DescribeLearned(outcome.Learned)}.");
         }
 
         return string.Join('\n', lines);
     }
 
-    private static string FormatForgotten(int forgotten) => forgotten switch
+    /// <summary>"1 new scam image and 2 new scam domains", or "nothing new".</summary>
+    public static string DescribeLearned(KnownCounts learned) =>
+        learned.Total == 0 ? "nothing new" : DescribeCounts(learned, "new scam");
+
+    private static string FormatForgotten(KnownCounts forgotten) =>
+        forgotten.Total == 0 ? "No known scam images or domains to forget." : $"Forgot {DescribeCounts(forgotten, "known scam")}.";
+
+    private static string DescribeCounts(KnownCounts counts, string adjective)
     {
-        0 => "No known scam images to forget.",
-        1 => "Forgot 1 known scam image.",
-        _ => $"Forgot {forgotten} known scam images.",
-    };
+        List<string> parts = [];
+        if (counts.Images > 0)
+        {
+            parts.Add(counts.Images == 1 ? $"1 {adjective} image" : $"{counts.Images} {adjective} images");
+        }
+        if (counts.Domains > 0)
+        {
+            parts.Add(counts.Domains == 1 ? $"1 {adjective} domain" : $"{counts.Domains} {adjective} domains");
+        }
+        return string.Join(" and ", parts);
+    }
+
+    /// <summary>In a code block, so links in it can't be clicked by accident.</summary>
+    private static string FormatText(string text)
+    {
+        var shown = text.Length <= MaxTextLength ? text : text[..(MaxTextLength - 1)] + "…";
+        return $"```\n{shown.Replace('`', '\'')}\n```";
+    }
 
     private static string FormatDuration(TimeSpan duration)
     {
