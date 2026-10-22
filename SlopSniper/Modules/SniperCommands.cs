@@ -2,28 +2,37 @@ using System.Text;
 using Discord;
 using Discord.Interactions;
 using Microsoft.Extensions.Logging;
+using SlopSniper.Options;
 using SlopSniper.Services;
 using SlopSniper.State;
 
 namespace SlopSniper.Modules;
 
-// Manage Messages rather than Manage Server, so moderators without server admin rights can use it. Reload is a
-// separate owner-only command (ReloadCommand).
+// Discord applies default permissions to the whole group, so it shows /sniper to moderators; pausing is limited to
+// admins below. Every permission is also checked here, so a broad override in Server Settings > Integrations can't
+// hand these to anyone else. Reload is a separate owner-only command (ReloadCommand).
 [Group("sniper", "slop-sniper controls.")]
 [DefaultMemberPermissions(GuildPermission.ManageMessages)]
 [CommandContextType(InteractionContextType.Guild)]
+[RequirePermission(GuildPermission.ManageMessages)]
 public sealed class SniperCommands(
+    IEnumerable<IMessageModule> modules,
     IEnumerable<IStatusSection> sections,
     StateStore state,
     Reporter reporter,
     ILogger<SniperCommands> logger) : InteractionModuleBase<SocketInteractionContext>
 {
+    private const string All = "all";
+
+    private readonly IMessageModule[] _modules = modules.ToArray();
+
     [SlashCommand("status", "Show scanning status and counters.")]
     public async Task Status()
     {
-        var paused = await state.ReadAsync(s => s.ScanningPaused);
-        var reply = new StringBuilder()
-            .Append("Scanning: ").Append(paused ? "paused" : "on").Append('\n');
+        var paused = await state.ReadAsync(s => s.PausedModules.ToArray());
+        var reply = new StringBuilder("Automatic scanning: ")
+            .AppendJoin(" · ", _modules.Select(m => $"{m.DisplayName} {(paused.Contains(m.Name) ? "**paused**" : "on")}"))
+            .Append('\n');
 
         foreach (var section in sections)
         {
@@ -34,30 +43,61 @@ public sealed class SniperCommands(
         await RespondAsync(reply.ToString().TrimEnd(), ephemeral: true);
     }
 
-    [SlashCommand("pause", "Stop scanning new images automatically. Manual checks still work.")]
-    public async Task Pause()
-    {
-        await SetPausedAsync(true);
-    }
+    [RequirePermission(GuildPermission.ManageGuild)]
+    [SlashCommand("pause", "Stop automatic scanning, of everything or one module. Manual checks still work.")]
+    public Task Pause(
+        [Summary(description: "What to pause. Default: everything.")]
+        [Choice("everything", All), Choice("provenance checks (OpenAI)", nameof(BotOptions.Provenance)), Choice("scam detection", nameof(BotOptions.ScamImages))]
+        string module = All) =>
+        SetPausedAsync(module, paused: true);
 
-    [SlashCommand("resume", "Resume scanning new images automatically.")]
-    public async Task Resume()
-    {
-        await SetPausedAsync(false);
-    }
+    [RequirePermission(GuildPermission.ManageGuild)]
+    [SlashCommand("resume", "Resume automatic scanning, of everything or one module.")]
+    public Task Resume(
+        [Summary(description: "What to resume. Default: everything.")]
+        [Choice("everything", All), Choice("provenance checks (OpenAI)", nameof(BotOptions.Provenance)), Choice("scam detection", nameof(BotOptions.ScamImages))]
+        string module = All) =>
+        SetPausedAsync(module, paused: false);
 
-    private async Task SetPausedAsync(bool paused)
+    private async Task SetPausedAsync(string target, bool paused)
     {
-        var verb = paused ? "paused" : "resumed";
-        if (await state.ReadAsync(s => s.ScanningPaused) == paused)
+        var targets = target == All ? _modules : _modules.Where(m => m.Name == target).ToArray();
+        if (targets.Length == 0)
         {
-            await RespondAsync($"Scanning is already {(paused ? "paused" : "on")}.", ephemeral: true);
+            await RespondAsync("That module is turned off in the bot's config.", ephemeral: true);
             return;
         }
 
-        await state.UpdateAsync(s => s.ScanningPaused = paused);
-        logger.LogInformation("Scanning {Verb} by {User} ({UserId}).", verb, Context.User.Username, Context.User.Id);
-        await RespondAsync($"Automatic scanning {verb}.", ephemeral: true);
-        await reporter.SendAlertAsync($"Automatic scanning {verb} by {Context.User.Mention}.");
+        List<string> changed = [];
+        await state.UpdateAsync(s =>
+        {
+            foreach (var module in targets)
+            {
+                if (paused ? !s.PausedModules.Contains(module.Name) : s.PausedModules.Contains(module.Name))
+                {
+                    if (paused)
+                    {
+                        s.PausedModules.Add(module.Name);
+                    }
+                    else
+                    {
+                        s.PausedModules.Remove(module.Name);
+                    }
+                    changed.Add(module.DisplayName);
+                }
+            }
+        });
+
+        var verb = paused ? "paused" : "resumed";
+        if (changed.Count == 0)
+        {
+            await RespondAsync($"Nothing to change: already {(paused ? "paused" : "on")}.", ephemeral: true);
+            return;
+        }
+
+        var what = string.Join(" and ", changed);
+        logger.LogInformation("Automatic scanning {Verb} for {Modules} by {User} ({UserId}).", verb, what, Context.User.Username, Context.User.Id);
+        await RespondAsync($"Automatic scanning {verb}: {what}.", ephemeral: true);
+        await reporter.SendAlertAsync($"Automatic scanning {verb} for {what} by {Context.User.Mention}.");
     }
 }

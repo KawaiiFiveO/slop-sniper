@@ -4,9 +4,15 @@ using Discord.WebSocket;
 namespace SlopSniper.Services;
 
 /// <summary>A module that looks at new messages in GuildId. <see cref="MessageScanner"/> applies the shared filters
-/// (excluded channels, bots, the paused flag) first.</summary>
+/// (excluded channels, bots, pausing) first.</summary>
 public interface IMessageModule
 {
+    /// <summary>The module's config section name, which /sniper pause uses too.</summary>
+    string Name { get; }
+
+    /// <summary>How the module is called in replies and alerts, e.g. "scam detection".</summary>
+    string DisplayName { get; }
+
     /// <summary>Runs on the gateway thread, so it may only filter and enqueue, never wait on the network.</summary>
     void OnMessage(SocketUserMessage message, SocketGuildChannel channel, IReadOnlyList<ImageSource> images);
 }

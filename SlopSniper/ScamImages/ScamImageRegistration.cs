@@ -9,13 +9,18 @@ public static class ScamImageRegistration
     public static IServiceCollection AddScamImages(this IServiceCollection services)
     {
         services.AddSingleton<BurstTracker>();
+        services.AddSingleton<ScamHashStore>();
+        services.AddSingleton<ScamImageHasher>();
         services.AddSingleton<ScamStats>();
         services.AddSingleton<ScamModerator>();
+        services.AddSingleton<ScamResponder>();
         services.AddSingleton<ScamQueue>();
         services.AddHostedService(sp => sp.GetRequiredService<ScamQueue>());
         services.AddSingleton<IMessageModule, ScamDetector>();
         services.AddSingleton<IStatusSection, ScamStatusSection>();
         services.AddSingleton(new CommandModule(typeof(ScamButtons), Global: false));
+        services.AddSingleton(new CommandModule(typeof(ScamReportCommand), Global: false));
+        services.AddSingleton(new CommandModule(typeof(ScamDebugCommand), Global: true));
         return services;
     }
 }

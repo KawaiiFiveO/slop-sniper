@@ -10,7 +10,7 @@ public sealed class ProvenanceStatusSection(ProvenanceQueue queue, ProvenanceSta
     public void AppendStatus(StringBuilder status)
     {
         status
-            .Append("**Provenance**\n")
+            .Append("**Provenance checks**\n")
             .Append("OpenAI: ").Append(FormatOpenAiStatus()).Append('\n')
             .Append("Queue: ").Append(queue.Count).Append(" waiting\n")
             .Append("Last OpenAI check: ").Append(openAi.LastSuccess is { } last ? Timestamp(last) : "none yet").Append('\n')

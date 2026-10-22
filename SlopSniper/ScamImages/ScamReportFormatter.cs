@@ -3,68 +3,131 @@ using Discord;
 
 namespace SlopSniper.ScamImages;
 
-/// <summary>Builds the moderator alert for a scam detection and its Undo button.</summary>
+/// <summary>Builds the moderator alerts for scam detections and their buttons.</summary>
 public static class ScamReportFormatter
 {
     public const string UndoButtonPrefix = "scam-undo";
+    public const string ConfirmButtonPrefix = "scam-act";
+    public const string DismissButtonPrefix = "scam-ignore";
 
     private static readonly Color ScamColor = new(0xE74C3C);
-    private static readonly Color UndoneColor = new(0x95A5A6);
+    private static readonly Color SuspiciousColor = new(0xE67E22);
+    private static readonly Color ClosedColor = new(0x95A5A6);
 
     /// <param name="evidenceFile">The attached copy of one of the images, shown in the embed, or null.</param>
     public static Embed BuildAlert(
-        ScamDetection detection, ScamActions actions, ulong guildId, int burstWindowSeconds, string? evidenceFile)
+        ScamDetection detection, ScamOutcome outcome, ulong guildId, int burstWindowSeconds, string? evidenceFile)
     {
-        var channels = detection.Posts.Select(p => p.ChannelId).Distinct().Select(id => $"<#{id}>");
-        var description = new StringBuilder()
-            .Append($"<@{detection.AuthorId}> (`{detection.AuthorId}`) in ").AppendJoin(' ', channels);
-        if (actions.Deleted < detection.Posts.Count)
-        {
-            var (channelId, messageId) = detection.Post;
-            description.Append($"\n[Jump to message](https://discord.com/channels/{guildId}/{channelId}/{messageId})");
-        }
-
-        List<string> signals = [];
-        if (detection.Signals.Channels > 1)
-        {
-            signals.Add($"Same images in {detection.Signals.Channels} channels within {burstWindowSeconds}s");
-        }
-        if (detection.Signals.Shape)
-        {
-            signals.Add($"{detection.Signals.ImageCount} images, little text");
-        }
-
-        var embed = new EmbedBuilder()
+        var actions = outcome.Actions;
+        return BuildEmbed(detection, guildId, burstWindowSeconds, evidenceFile, showJumpLink: actions.Deleted < detection.Posts.Count)
             .WithTitle(actions.Deleted > 0 ? "Scam images removed" : "Scam images detected")
             .WithColor(ScamColor)
-            .WithDescription(description.ToString())
-            .AddField("Signals", string.Join('\n', signals))
-            .AddField("Actions", FormatActions(actions))
-            .WithTimestamp(detection.Timestamp)
-            .WithFooter("Undo lifts the timeout. Deleted posts can't be restored.");
-        if (evidenceFile is not null)
-        {
-            embed.WithImageUrl($"attachment://{evidenceFile}");
-        }
-        return embed.Build();
+            .AddField("Actions", FormatActions(outcome))
+            .WithFooter("Undo lifts the timeout and forgets images. Deleted posts can't be restored.")
+            .Build();
     }
+
+    /// <summary>An alert that only asks the moderators, for a post that isn't certain enough to act on.</summary>
+    public static Embed BuildSuspiciousAlert(ScamDetection detection, ulong guildId, int burstWindowSeconds, string? evidenceFile) =>
+        BuildEmbed(detection, guildId, burstWindowSeconds, evidenceFile, showJumpLink: true)
+            .WithTitle("Possible scam images")
+            .WithColor(SuspiciousColor)
+            .AddField("Actions", "None yet. Not a scam also forgets the known images it matched.")
+            .Build();
 
     public static MessageComponent BuildUndoButton(ulong eventId, ulong authorId) =>
         new ComponentBuilder()
             .WithButton("Undo", $"{UndoButtonPrefix}:{eventId}:{authorId}", ButtonStyle.Secondary)
             .Build();
 
-    /// <summary>The alert after a moderator pressed Undo.</summary>
-    public static Embed MarkUndone(IEmbed alert, string moderator, string? timeoutError) =>
-        alert.ToEmbedBuilder()
-            .WithColor(UndoneColor)
-            .AddField("Undone", timeoutError is null
-                ? $"By {moderator}. Timeout lifted; the author's posts are treated normally again."
-                : $"By {moderator}, but the timeout couldn't be lifted: {timeoutError}")
+    public static MessageComponent BuildSuspiciousButtons(PostRef post, ulong authorId) =>
+        new ComponentBuilder()
+            .WithButton("Delete & time out", $"{ConfirmButtonPrefix}:{post.ChannelId}:{post.MessageId}:{authorId}", ButtonStyle.Danger)
+            .WithButton("Not a scam", $"{DismissButtonPrefix}:{post.ChannelId}:{post.MessageId}", ButtonStyle.Secondary)
             .Build();
 
-    private static string FormatActions(ScamActions actions)
+    /// <summary>A "possible scam" alert after a moderator confirmed it.</summary>
+    public static Embed MarkConfirmed(IEmbed alert, string moderator, ScamOutcome outcome) =>
+        WithoutActions(alert)
+            .WithTitle(outcome.Actions.Deleted > 0 ? "Scam images removed" : "Scam images confirmed")
+            .WithColor(ScamColor)
+            .AddField("Actions", $"Confirmed by {moderator}.\n{FormatActions(outcome)}")
+            .WithFooter("Undo lifts the timeout and forgets images. Deleted posts can't be restored.")
+            .Build();
+
+    /// <summary>A "possible scam" alert after a moderator said it isn't one.</summary>
+    public static Embed MarkDismissed(IEmbed alert, string moderator, int forgotten) =>
+        WithoutActions(alert)
+            .WithColor(ClosedColor)
+            .AddField("Not a scam", $"Marked by {moderator}. {FormatForgotten(forgotten)}")
+            .Build();
+
+    /// <summary>An alert after a moderator pressed Undo.</summary>
+    public static Embed MarkUndone(IEmbed alert, string moderator, string? timeoutError, int forgotten) =>
+        alert.ToEmbedBuilder()
+            .WithColor(ClosedColor)
+            .AddField("Undone", (timeoutError is null
+                ? $"By {moderator}. Timeout lifted; the author's posts are treated normally again."
+                : $"By {moderator}, but the timeout couldn't be lifted: {timeoutError}.")
+                + " " + FormatForgotten(forgotten))
+            .Build();
+
+    /// <summary>The alert with its "Actions" field removed, to be replaced.</summary>
+    private static EmbedBuilder WithoutActions(IEmbed alert)
     {
+        var embed = alert.ToEmbedBuilder();
+        embed.Fields.RemoveAll(f => f.Name == "Actions");
+        return embed;
+    }
+
+    private static EmbedBuilder BuildEmbed(
+        ScamDetection detection, ulong guildId, int burstWindowSeconds, string? evidenceFile, bool showJumpLink)
+    {
+        var channels = detection.Posts.Select(p => p.ChannelId).Distinct().Select(id => $"<#{id}>");
+        var description = new StringBuilder()
+            .Append($"<@{detection.AuthorId}> (`{detection.AuthorId}`) in ").AppendJoin(' ', channels);
+        if (showJumpLink)
+        {
+            var (channelId, messageId) = detection.Post;
+            description.Append($"\n[Jump to message](https://discord.com/channels/{guildId}/{channelId}/{messageId})");
+        }
+
+        var embed = new EmbedBuilder()
+            .WithDescription(description.ToString())
+            .AddField("Signals", FormatSignals(detection.Signals, burstWindowSeconds))
+            .WithTimestamp(detection.Timestamp);
+        if (evidenceFile is not null)
+        {
+            embed.WithImageUrl($"attachment://{evidenceFile}");
+        }
+        return embed;
+    }
+
+    private static string FormatSignals(ScamSignals signals, int burstWindowSeconds)
+    {
+        List<string> lines = [];
+        if (signals.ReportedBy is not null)
+        {
+            lines.Add($"Reported by {signals.ReportedBy}");
+        }
+        if (signals.Channels > 1)
+        {
+            lines.Add($"Same images in {signals.Channels} channels within {burstWindowSeconds}s");
+        }
+        if (signals.HashMatches > 0)
+        {
+            lines.Add(signals.HashMatches == 1 ? "1 image looks like a known scam image" : $"{signals.HashMatches} images look like known scam images");
+        }
+        if (signals.Shape)
+        {
+            lines.Add($"{signals.ImageCount} images, little text");
+        }
+        return lines.Count > 0 ? string.Join('\n', lines) : "None";
+    }
+
+    private static string FormatActions(ScamOutcome outcome)
+    {
+        var actions = outcome.Actions;
         List<string> lines = [];
         if (actions.ToDelete == 0)
         {
@@ -92,8 +155,20 @@ public static class ScamReportFormatter
             lines.Add("Not timed out (TimeoutMinutes is 0).");
         }
 
+        if (outcome.Learned > 0)
+        {
+            lines.Add(outcome.Learned == 1 ? "Learned 1 new scam image." : $"Learned {outcome.Learned} new scam images.");
+        }
+
         return string.Join('\n', lines);
     }
+
+    private static string FormatForgotten(int forgotten) => forgotten switch
+    {
+        0 => "No known scam images to forget.",
+        1 => "Forgot 1 known scam image.",
+        _ => $"Forgot {forgotten} known scam images.",
+    };
 
     private static string FormatDuration(TimeSpan duration)
     {

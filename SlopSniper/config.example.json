@@ -21,6 +21,8 @@
     "ShapeMinImages": 3,
     "DeleteMessages": true,
     "TimeoutMinutes": 1440,
-    "ExemptRoleIds": []
+    "ExemptRoleIds": [],
+    "HashDistance": 8,
+    "MaxKnownImages": 500
   }
 }

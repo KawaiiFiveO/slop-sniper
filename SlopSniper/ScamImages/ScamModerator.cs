@@ -20,13 +20,14 @@ public sealed class ScamModerator(
     IOptionsMonitor<BotOptions> options,
     ILogger<ScamModerator> logger)
 {
-    private const string AuditReason = "slop-sniper: scam images posted across channels";
+    private const string FollowUpReason = "slop-sniper: more posts from an account already acted on for scam images";
 
-    public async Task<ScamActions> ActAsync(ulong authorId, IReadOnlyList<PostRef> posts)
+    /// <param name="auditReason">Shown in Discord's audit log for the deletes and the timeout.</param>
+    public async Task<ScamActions> ActAsync(ulong authorId, IReadOnlyList<PostRef> posts, string auditReason)
     {
         var settings = options.CurrentValue.ScamImages;
 
-        var (deleted, deleteError) = settings.DeleteMessages ? await DeleteAsync(posts) : (0, null);
+        var (deleted, deleteError) = settings.DeleteMessages ? await DeleteAsync(posts, auditReason) : (0, null);
 
         TimeSpan? timedOutFor = null;
         string? timeoutError = null;
@@ -36,7 +37,7 @@ public sealed class ScamModerator(
             timeoutError = await RunAsync(async () =>
             {
                 var user = await GetMemberAsync(authorId) ?? throw new InvalidOperationException("they already left the server");
-                await user.SetTimeOutAsync(duration, new RequestOptions { AuditLogReason = AuditReason });
+                await user.SetTimeOutAsync(duration, new RequestOptions { AuditLogReason = auditReason });
             }, "time out user", authorId);
             timedOutFor = timeoutError is null ? duration : null;
         }
@@ -51,7 +52,7 @@ public sealed class ScamModerator(
         {
             return false;
         }
-        var (deleted, _) = await DeleteAsync([post]);
+        var (deleted, _) = await DeleteAsync([post], FollowUpReason);
         return deleted == 1;
     }
 
@@ -61,7 +62,7 @@ public sealed class ScamModerator(
         {
             if (await GetMemberAsync(authorId) is { } user)
             {
-                await user.RemoveTimeOutAsync(new RequestOptions { AuditLogReason = $"slop-sniper: undone by {moderator}" });
+                await user.RemoveTimeOutAsync(new RequestOptions { AuditLogReason = $"slop-sniper: scam timeout undone by {moderator}" });
             }
         }, "lift the timeout of user", authorId);
 
@@ -84,7 +85,7 @@ public sealed class ScamModerator(
         }
     }
 
-    private async Task<(int Deleted, string? Error)> DeleteAsync(IReadOnlyList<PostRef> posts)
+    private async Task<(int Deleted, string? Error)> DeleteAsync(IReadOnlyList<PostRef> posts, string auditReason)
     {
         var guild = client.GetGuild(startupOptions.Value.GuildId);
         var deleted = 0;
@@ -98,7 +99,7 @@ public sealed class ScamModerator(
             }
 
             var failure = await RunAsync(
-                () => channel.DeleteMessageAsync(post.MessageId, new RequestOptions { AuditLogReason = AuditReason }),
+                () => channel.DeleteMessageAsync(post.MessageId, new RequestOptions { AuditLogReason = auditReason }),
                 "delete message", post.MessageId);
             if (failure is null)
             {
@@ -112,7 +113,8 @@ public sealed class ScamModerator(
         return (deleted, error);
     }
 
-    private async Task<IGuildUser?> GetMemberAsync(ulong userId)
+    /// <summary>The member, or null if they left the server.</summary>
+    public async Task<IGuildUser?> GetMemberAsync(ulong userId)
     {
         var guildId = startupOptions.Value.GuildId;
         return (IGuildUser?)client.GetGuild(guildId)?.GetUser(userId) ?? await client.Rest.GetGuildUserAsync(guildId, userId);

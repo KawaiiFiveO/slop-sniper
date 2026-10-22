@@ -1,16 +1,27 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
+using SlopSniper.Options;
+using SlopSniper.ScamImages;
 
 namespace SlopSniper.State;
 
 /// <summary>Runtime state that must survive restarts. Saved to state.json next to config.json.</summary>
 public sealed class BotState
 {
-    /// <summary>Set by /sniper pause so automatic scanning stays off across restarts until resumed.</summary>
-    public bool ScanningPaused { get; set; }
+    /// <summary>Modules whose automatic scanning is paused by /sniper pause, by config section name. Stays paused
+    /// across restarts until resumed.</summary>
+    public List<string> PausedModules { get; set; } = [];
+
+    /// <summary>Only read from state.json written before modules could be paused separately.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? ScanningPaused { get; set; }
 
     /// <summary>The guild /sniper was last registered to, so its commands can be removed when GuildId changes.</summary>
     public ulong CommandsGuildId { get; set; }
+
+    /// <summary>Perceptual hashes of confirmed scam images (ScamImages module).</summary>
+    public List<KnownScamImage> KnownScamImages { get; set; } = [];
 }
 
 public sealed class StateStore(ILogger<StateStore> logger)
@@ -80,6 +91,13 @@ public sealed class StateStore(ILogger<StateStore> logger)
             logger.LogWarning(ex, "{File} is corrupt and will be replaced.", FileName);
             _state = new BotState();
         }
+
+        // The old single flag paused every module.
+        if (_state.ScanningPaused == true)
+        {
+            _state.PausedModules = [nameof(BotOptions.Provenance), nameof(BotOptions.ScamImages)];
+        }
+        _state.ScanningPaused = null;
 
         return _state;
     }

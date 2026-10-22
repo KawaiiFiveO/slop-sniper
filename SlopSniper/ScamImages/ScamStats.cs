@@ -4,6 +4,7 @@ namespace SlopSniper.ScamImages;
 public sealed class ScamStats
 {
     private long _detections;
+    private long _suspicious;
     private long _followUps;
     private long _postsDeleted;
     private long _timeouts;
@@ -12,6 +13,9 @@ public sealed class ScamStats
     private long _dropped;
 
     public long Detections => Interlocked.Read(ref _detections);
+
+    /// <summary>"Possible scam" alerts, which only ask the moderators.</summary>
+    public long SuspiciousAlerts => Interlocked.Read(ref _suspicious);
 
     /// <summary>More copies posted by an author who was already acted on.</summary>
     public long FollowUps => Interlocked.Read(ref _followUps);
@@ -50,6 +54,7 @@ public sealed class ScamStats
         }
     }
 
+    public void Suspicious() => Interlocked.Increment(ref _suspicious);
     public void Undo() => Interlocked.Increment(ref _undone);
     public void Drop() => Interlocked.Increment(ref _dropped);
 }

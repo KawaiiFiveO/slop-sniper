@@ -1,5 +1,6 @@
 using Discord.WebSocket;
 using Microsoft.Extensions.Logging;
+using SlopSniper.Options;
 using SlopSniper.Services;
 
 namespace SlopSniper.Provenance;
@@ -8,6 +9,10 @@ namespace SlopSniper.Provenance;
 public sealed class ProvenanceScanner(ProvenanceQueue queue, ProvenanceStats stats, ILogger<ProvenanceScanner> logger)
     : IMessageModule
 {
+    public string Name => nameof(BotOptions.Provenance);
+
+    public string DisplayName => "provenance checks";
+
     public void OnMessage(SocketUserMessage message, SocketGuildChannel channel, IReadOnlyList<ImageSource> images)
     {
         if (queue.TryEnqueue(ScanJob.Create(message, channel.Guild.Id, channel.Id, images)))

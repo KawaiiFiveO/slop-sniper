@@ -1,20 +1,24 @@
 # slop-sniper
 
-Discord bot that checks posted images for slop and scams. Each feature is a module that can be turned on or off.
+Discord bot that checks posted images for OpenAI provenance signals (C2PA and SynthID) and scams.
 
 ## Commands
 
-`Check image provenance` (message context menu) - Check a message's images and link previews for OpenAI provenance signals (C2PA and SynthID). Only you see the result. Install the app on your account to use it anywhere. (Bot owner and `Provenance.UserAppUserIds`; Manage Messages in `GuildId`)
+`Check image provenance` (message context menu) - Check a message's images and link previews. Only you see the result. Install the app on your account to use it anywhere. (Bot owner and `Provenance.UserAppUserIds`; Manage Messages in `GuildId`)
 
 `/sniper status` - Show scanning status and counters. (Manage Messages)
 
-`/sniper pause|resume` - Stop or resume automatic scanning, including across restarts. (Manage Messages)
+`/sniper pause|resume [module]` - Stop or resume automatic scanning, including across restarts. (Manage Server)
 
-`/sniper-reload` - Re-read `config.json` without restarting. Works anywhere, including DMs with the bot. (Bot owner)
+`/sniper-reload` - Re-read `config.json` without restarting. (Bot owner)
 
-Scam alerts have an Undo button that lifts the timeout. (Moderate Members)
+`Report as scam` (message context menu) - Delete the post, time out its author and remember its images. (Moderate Members)
 
-`/sniper` permissions can be changed in Server Settings > Integrations. Changing `GuildId` removes the commands from the previous server on the next start.
+`Debug scam check` (message context menu) - Show how the scam checks score a message, without acting. (Bot owner, user install)
+
+Scam alert buttons: Undo, Delete & time out, Not a scam. (Moderate Members)
+
+Permissions are enforced by the bot; Server Settings > Integrations can only restrict them.
 
 ## Config
 
@@ -30,9 +34,7 @@ Copy `config.example.json` to `config.json` next to the binary.
 
 `ScanBots` - Also scan messages from other bots. (Webhooks are always scanned)
 
-### Provenance
-
-`Provenance.Enabled` - OpenAI provenance checks, automatic in `GuildId` and manual anywhere. (Restart to change)
+`Provenance.Enabled` - OpenAI provenance checks. (Restart to change)
 
 `Provenance.OpenAiApiKey` - OpenAI API key. (Only needs the Images permission)
 
@@ -48,25 +50,25 @@ Copy `config.example.json` to `config.json` next to the binary.
 
 `Provenance.CacheHours` - Reuse the result for an identical file for this long. (0 to disable)
 
-### ScamImages
+`ScamImages.Enabled` - Delete scam image posts in `GuildId` and time out the author. (Needs Manage Messages and Moderate Members; restart to change)
 
-Catches hijacked accounts posting the same scam screenshots across channels: deletes every copy, times out the author and alerts the log channel. Moderators, the owner, bots and webhooks are never acted on. The bot needs Manage Messages and Moderate Members, and its role must be above the members it times out.
+`ScamImages.BurstWindowSeconds` - Window for spotting the same images in several channels. (10-600)
 
-`ScamImages.Enabled` - Scam image detection in `GuildId`. (Restart to change)
+`ScamImages.BurstChannels` - Act when the same images appear in this many channels. (2-20)
 
-`ScamImages.BurstWindowSeconds` - How long after a post the same images elsewhere count as a burst. (10-600)
-
-`ScamImages.BurstChannels` - Act when the same images are posted to this many channels. (2-20; 2 is enough if the post looks like a scam post)
-
-`ScamImages.ShapeMinImages` - Posts with at least this many images and little text look like scam posts.
+`ScamImages.ShapeMinImages` - Image count that, with little text, looks like a scam post.
 
 `ScamImages.DeleteMessages` - Delete the posts.
 
-`ScamImages.TimeoutMinutes` - Time out the author for this long. (0 to disable, max 40320)
+`ScamImages.TimeoutMinutes` - Timeout length. (0 to disable, max 40320)
 
-`ScamImages.ExemptRoleIds` - Role IDs that are never acted on.
+`ScamImages.ExemptRoleIds` - Role IDs that are never acted on. (Moderators never are)
 
-Any setting can be overridden with a `SLOPSNIPER_` environment variable, with `__` between section and key, e.g. `SLOPSNIPER_Provenance__OpenAiApiKey`.
+`ScamImages.HashDistance` - Max bits (of 64) an image can differ from a known scam image. (0-16)
+
+`ScamImages.MaxKnownImages` - Known scam images to keep. (10-5000)
+
+Any setting can be overridden with a `SLOPSNIPER_` environment variable, e.g. `SLOPSNIPER_Provenance__OpenAiApiKey`.
 
 ## Deployment
 

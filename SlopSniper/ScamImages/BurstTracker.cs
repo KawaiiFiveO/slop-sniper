@@ -75,6 +75,28 @@ public sealed class BurstTracker(TimeProvider time, IOptionsMonitor<BotOptions> 
         }
     }
 
+    /// <summary>What <see cref="Record"/> would say about these images right now, without recording anything. For the
+    /// debug command.</summary>
+    /// <returns>Distinct channels the author posted any of the images to within the window, and whether they're
+    /// flagged.</returns>
+    public (int Channels, bool Flagged) Inspect(ulong authorId, IReadOnlyList<ImageSource> images)
+    {
+        var now = time.GetUtcNow();
+        var cutoff = now - TimeSpan.FromSeconds(options.CurrentValue.ScamImages.BurstWindowSeconds);
+        var fingerprints = images
+            .Where(i => i.Size is not null)
+            .Select(i => new Fingerprint(i.Size!.Value, i.Width, i.Height))
+            .ToHashSet();
+        lock (_lock)
+        {
+            var flagged = _flags.TryGetValue(authorId, out var flag) && flag.Until > now;
+            var channels = _posts.TryGetValue(authorId, out var recent)
+                ? recent.Where(p => p.At >= cutoff && p.Fingerprints.Overlaps(fingerprints)).Select(p => p.Ref.ChannelId).Distinct().Count()
+                : 0;
+            return (channels, flagged);
+        }
+    }
+
     /// <summary>Marks the author as acted on, unless they already are.</summary>
     /// <returns>The event the author is flagged under: <paramref name="eventId"/>, or the existing one.</returns>
     public ulong Flag(ulong authorId, ulong eventId)

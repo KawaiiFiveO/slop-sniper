@@ -8,9 +8,10 @@ namespace SlopSniper.ScamImages;
 
 /// <summary>Spots scam posts from their metadata alone, on the gateway thread, and queues the clean-up. Deciding here
 /// rather than in the queue means the author is flagged before their next copy arrives, so a burst produces one
-/// alert, not one per channel.</summary>
+/// alert, not one per channel. Other image posts are queued for comparison with known scam images.</summary>
 public sealed class ScamDetector(
     BurstTracker tracker,
+    ScamHashStore known,
     ScamQueue queue,
     IOptionsMonitor<BotOptions> options,
     ILogger<ScamDetector> logger) : IMessageModule
@@ -18,15 +19,23 @@ public sealed class ScamDetector(
     // "Little text": scam posts are mostly screenshots, sometimes with a short line like "just won big on this site".
     private const int ShapeMaxTextLength = 200;
 
+    /// <summary>Several images and little text, like the typical scam post.</summary>
+    public static bool HasScamShape(int imageCount, string text, ScamImageOptions settings) =>
+        imageCount >= settings.ShapeMinImages && text.Length <= ShapeMaxTextLength;
+
+    public string Name => nameof(BotOptions.ScamImages);
+
+    public string DisplayName => "scam detection";
+
     public void OnMessage(SocketUserMessage message, SocketGuildChannel channel, IReadOnlyList<ImageSource> images)
     {
-        // Webhooks and bots can't be timed out, and their posts aren't from a hijacked member account.
-        if (message.Author is not SocketGuildUser author || author.IsBot || author.IsWebhook || IsExempt(author))
+        // Webhooks can't be timed out and aren't member accounts; bots and moderators are exempt.
+        var settings = options.CurrentValue.ScamImages;
+        if (message.Author is not SocketGuildUser author || author.IsWebhook || ScamRules.IsExempt(author.Guild, author, settings))
         {
             return;
         }
 
-        var settings = options.CurrentValue.ScamImages;
         var post = new PostRef(channel.Id, message.Id);
         var burst = tracker.Record(author.Id, post, images);
 
@@ -38,31 +47,21 @@ public sealed class ScamDetector(
 
         var signals = new ScamSignals(
             burst.Channels,
-            Shape: images.Count >= settings.ShapeMinImages && message.Content.Length <= ShapeMaxTextLength,
+            Shape: HasScamShape(images.Count, message.Content, settings),
             images.Count);
-        if (!IsScam(signals, settings))
+        if (ScamRules.Decide(signals, settings) == ScamVerdict.Scam)
         {
-            return;
+            // Another copy can win the race to flag the author; then this one is just more of the same.
+            var eventId = tracker.Flag(author.Id, message.Id);
+            Enqueue(eventId == message.Id
+                ? new ScamDetection(author.Id, post, eventId, message.Timestamp, images, burst.Posts, signals)
+                : new ScamFollowUp(author.Id, post, eventId));
         }
-
-        // Another copy can win the race to flag the author; then this one is just more of the same.
-        var eventId = tracker.Flag(author.Id, message.Id);
-        Enqueue(eventId == message.Id
-            ? new ScamDetection(author.Id, post, eventId, message.Timestamp, images, burst.Posts, signals)
-            : new ScamFollowUp(author.Id, post, eventId));
+        else if (known.Count > 0)
+        {
+            Enqueue(new ScamCandidate(author.Id, post, message.Timestamp, images, burst.Posts, signals));
+        }
     }
-
-    /// <summary>The same images in enough channels, or in two channels when the post also looks like a scam post.</summary>
-    public static bool IsScam(ScamSignals signals, ScamImageOptions settings) =>
-        signals.Channels >= settings.BurstChannels || (signals.Channels >= 2 && signals.Shape);
-
-    /// <summary>Moderators, the owner and exempt roles are never acted on.</summary>
-    private bool IsExempt(SocketGuildUser author) =>
-        author.Id == author.Guild.OwnerId
-        || author.GuildPermissions.Administrator
-        || author.GuildPermissions.ManageMessages
-        || author.GuildPermissions.ModerateMembers
-        || author.Roles.Any(r => options.CurrentValue.ScamImages.ExemptRoleIds.Contains(r.Id));
 
     private void Enqueue(ScamJob job)
     {

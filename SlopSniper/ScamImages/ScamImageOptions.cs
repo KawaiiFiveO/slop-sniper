@@ -29,6 +29,12 @@ public sealed class ScamImageOptions
     /// members never are either.</summary>
     public List<ulong> ExemptRoleIds { get; set; } = [];
 
+    /// <summary>Two images whose perceptual hashes differ in at most this many of 64 bits count as the same image.</summary>
+    public int HashDistance { get; set; } = 8;
+
+    /// <summary>Known scam images remembered. Past this, the oldest are forgotten.</summary>
+    public int MaxKnownImages { get; set; } = 500;
+
     public void Validate(List<string> errors, ulong guildId)
     {
         if (!Enabled)
@@ -54,6 +60,16 @@ public sealed class ScamImageOptions
         if (ShapeMinImages is < 1 or > 10)
         {
             errors.Add("ScamImages.ShapeMinImages must be between 1 and 10.");
+        }
+
+        if (HashDistance is < 0 or > 16)
+        {
+            errors.Add("ScamImages.HashDistance must be between 0 and 16.");
+        }
+
+        if (MaxKnownImages is < 10 or > 5000)
+        {
+            errors.Add("ScamImages.MaxKnownImages must be between 10 and 5000.");
         }
 
         if (TimeoutMinutes is < 0 or > MaxTimeoutMinutes)

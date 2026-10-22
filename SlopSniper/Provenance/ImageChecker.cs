@@ -114,7 +114,7 @@ public sealed class ImageChecker(
             ProvenanceFailure.QuotaExceeded => (Retry: (TimeSpan?)QuotaRetryDelay,
                 Alert: $"OpenAI provenance checks are paused: the API quota is used up. Trying again hourly.\n> {ex.Message}"),
             ProvenanceFailure.AccessDenied => (Retry: null,
-                Alert: $"OpenAI provenance checks are paused: the API key was rejected or lost access. Fix OpenAiApiKey, then `/sniper reload` or restart.\n> {ex.Message}"),
+                Alert: $"OpenAI provenance checks are paused: the API key was rejected or lost access. Fix Provenance.OpenAiApiKey, then `/sniper-reload` or restart.\n> {ex.Message}"),
             _ => default,
         };
 
