@@ -1,6 +1,6 @@
 # slop-sniper
 
-Discord bot that checks posted images for OpenAI provenance signals (C2PA and SynthID) and scams.
+Discord bot that checks posted images for OpenAI provenance signals (C2PA/SynthID) and scams.
 
 ## Commands
 
@@ -50,7 +50,7 @@ Copy `config.example.json` to `config.json` next to the binary.
 
 `Provenance.CacheHours` - Reuse the result for an identical file for this long. (0 to disable)
 
-`Scams.Enabled` - Delete scam posts (images or links) in `GuildId` and time out the author. (Needs Manage Messages and Moderate Members; restart to change)
+`Scams.Enabled` - Delete scam posts (images or links) in `GuildId` and time out the author. (Needs Manage Messages and Moderate Members)
 
 `Scams.BurstWindowSeconds` - Window for spotting the same post in several channels. (10-600)
 
@@ -60,7 +60,7 @@ Copy `config.example.json` to `config.json` next to the binary.
 
 `Scams.DeleteMessages` - Delete the posts.
 
-`Scams.TimeoutMinutes` - Timeout length. (0 to disable, max 40320)
+`Scams.TimeoutMinutes` - Timeout length. (0 to disable)
 
 `Scams.ExemptRoleIds` - Role IDs that are never acted on. (Moderators never are)
 
@@ -68,23 +68,15 @@ Copy `config.example.json` to `config.json` next to the binary.
 
 `Scams.MaxKnownImages` - Known scam images to keep. (10-5000)
 
-`Scams.TrustedDomains` - Domains never learned as scam domains, besides a built-in list of big sites.
+`Scams.TrustedDomains` - Domains never learned as scam domains.
 
-`Scams.OcrCommand` - Command that reads text in suspicious images (`apt install tesseract-ocr`). (Empty to disable; works without it)
+`Scams.OcrCommand` - Command that reads text in suspicious images (`apt install tesseract-ocr`). (Empty to disable)
 
-`Scams.OcrAllImages` - Read text in every image post, not only suspicious ones. (Slower; alone it only alerts)
+`Scams.OcrAllImages` - Read text in every image post, not only suspicious ones. (Slower)
 
-`Scams.Words.Lure|Money|Code|Site` - [Regexes](https://learn.microsoft.com/dotnet/standard/base-types/regular-expression-language-quick-reference) for the word groups OCR looks for; hitting more groups is more suspicious. (Never match inside a word; missing or empty uses the built-in list in `config.example.json`)
-
-Any setting can be overridden with a `SLOPSNIPER_` environment variable, e.g. `SLOPSNIPER_Provenance__OpenAiApiKey`.
+`Scams.Words.Lure|Money|Code|Site` - Regexes for OCR; hitting more groups is more suspicious. (Missing or empty uses built-in list in `config.example.json`)
 
 ## Deployment
-
-Releases are built by GitHub Actions when a `v*` tag is pushed (`v1.0.0-rc1` style tags are pre-releases):
-
-```
-git tag v1.0.0 && git push origin v1.0.0
-```
 
 Install on Linux, from the bot directory.
 
