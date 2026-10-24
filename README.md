@@ -74,6 +74,8 @@ Copy `config.example.json` to `config.json` next to the binary.
 
 `Scams.OcrAllImages` - Read text in every image post, not only suspicious ones. (Slower; alone it only alerts)
 
+`Scams.Words.Lure|Money|Code|Site` - [Regexes](https://learn.microsoft.com/dotnet/standard/base-types/regular-expression-language-quick-reference) for the word groups OCR looks for; hitting more groups is more suspicious. (Never match inside a word; missing or empty uses the built-in list in `config.example.json`)
+
 Any setting can be overridden with a `SLOPSNIPER_` environment variable, e.g. `SLOPSNIPER_Provenance__OpenAiApiKey`.
 
 ## Deployment

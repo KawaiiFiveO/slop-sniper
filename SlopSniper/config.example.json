@@ -26,6 +26,24 @@
     "MaxKnownImages": 500,
     "TrustedDomains": [],
     "OcrCommand": "tesseract",
-    "OcrAllImages": false
+    "OcrAllImages": false,
+    "Words": {
+      "Lure": [
+        "giveaway", "give ?away", "giving away", "mr\\.? ?beast", "elon musk", "airdrop", "jackpot", "congratulations",
+        "you(?:'ve| have)? won", "winner", "claim(?:ed)?", "reward", "free (?:crypto|bitcoin|btc|usdt|money|spins?)"
+      ],
+      "Money": [
+        "usdt", "btc", "bitcoin", "eth", "ethereum", "crypto", "tether", "withdraw(?:al|n)?", "balance", "deposit",
+        "casino", "payout", "usd", "[$€£] ?\\d[\\d,.]*", "\\d[\\d,.]* ?(?:usdt|btc|eth)"
+      ],
+      "Code": [
+        "promo ?codes?", "bonus ?codes?", "use (?:the |my )?code", "enter (?:the )?code", "activation code",
+        "referral code", "redeem(?:ed)?", "code ?:"
+      ],
+      "Site": [
+        "sign ?up", "registers?", "registered", "registration", "website", "go to", "visit",
+        "[a-z0-9-]{3,}\\.(?:com|io|net|org|xyz|gg|bet|casino|app|site|online|top|vip|pro|cc|win|fun|club|live|space|store|me|co|us)"
+      ]
+    }
   }
 }

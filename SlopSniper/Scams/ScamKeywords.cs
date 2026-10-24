@@ -24,49 +24,68 @@ public enum ScamWords
 
 /// <summary>Scores text read from images by how many word groups it hits. An ordinary screenshot hits one group now
 /// and then; a fake giveaway or casino win hits three or four: a famous name giving away money, an amount in crypto, a
-/// promo code, and a site to enter it on.</summary>
-public static partial class ScamKeywords
+/// promo code, and a site to enter it on. The words come from Scams.Words.</summary>
+public static class ScamKeywords
 {
     // Keywords shown per post, to keep alerts short.
     private const int MaxKeywords = 8;
 
-    [GeneratedRegex(@"\b(?:giveaway|give ?away|giving away|mr\.? ?beast|elon musk|airdrop|jackpot|congratulations|you(?:'ve| have)? won|winner|claim(?:ed)?|reward|free (?:crypto|bitcoin|btc|usdt|money|spins?))\b")]
-    private static partial Regex Lure();
+    // The patterns come from config, so a slow one can't hold up the OCR queue.
+    private static readonly TimeSpan MatchTimeout = TimeSpan.FromMilliseconds(500);
 
-    [GeneratedRegex(@"\b(?:usdt|btc|bitcoin|eth|ethereum|crypto|tether|withdraw(?:al|n)?|balance|deposit|casino|payout|usd)\b|[$€£] ?\d[\d,.]*|\d[\d,.]* ?(?:usdt|btc|eth)\b")]
-    private static partial Regex Money();
+    private static readonly ScamWords[] AllGroups = [ScamWords.Lure, ScamWords.Money, ScamWords.Code, ScamWords.Site];
 
-    [GeneratedRegex(@"\b(?:promo ?codes?|bonus ?codes?|use (?:the |my )?code|enter (?:the )?code|activation code|referral code|redeem(?:ed)?)\b|\bcode ?:")]
-    private static partial Regex Code();
+    private static Compiled? _compiled;
 
-    [GeneratedRegex(@"\b(?:sign ?up|registers?|registered|registration|website|go to|visit)\b|\b[a-z0-9-]{3,}\.(?:com|io|net|org|xyz|gg|bet|casino|app|site|online|top|vip|pro|cc|win|fun|club|live|space|store|me|co|us)\b")]
-    private static partial Regex Site();
-
-    private static readonly (ScamWords Group, Func<Regex> Pattern)[] Groups =
-        [(ScamWords.Lure, Lure), (ScamWords.Money, Money), (ScamWords.Code, Code), (ScamWords.Site, Site)];
-
-    /// <returns>The groups the text hits, and the words that hit them.</returns>
-    public static (ScamWords Groups, IReadOnlyList<string> Keywords) Find(string text)
+    /// <returns>The groups the text hits, the words that hit them, and the groups whose patterns took too long.</returns>
+    public static (ScamWords Groups, IReadOnlyList<string> Keywords, ScamWords TimedOut) Find(string text, ScamWordOptions words)
     {
         // OCR breaks lines anywhere, so "promo\ncode" has to match too.
         var normalized = string.Join(' ', text.ToLowerInvariant().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
         var found = ScamWords.None;
+        var timedOut = ScamWords.None;
         List<string> keywords = [];
-        foreach (var (group, pattern) in Groups)
+        foreach (var (group, pattern) in GetCompiled(words))
         {
-            var matches = pattern().Matches(normalized);
-            if (matches.Count > 0)
+            try
             {
-                found |= group;
-                keywords.AddRange(matches.Select(m => m.Value.Trim()));
+                var matches = pattern.Matches(normalized);
+                if (matches.Count > 0)
+                {
+                    found |= group;
+                    keywords.AddRange(matches.Select(m => m.Value.Trim()));
+                }
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                timedOut |= group;
             }
         }
-        return (found, keywords.Distinct().Take(MaxKeywords).ToList());
+        return (found, keywords.Distinct().Take(MaxKeywords).ToList(), timedOut);
     }
+
+    /// <summary>One regex for a group: any of its patterns, where the match doesn't start or end inside a word.</summary>
+    private static Regex Build(IEnumerable<string> patterns) =>
+        new(@"(?:(?<!\w)|(?!\w))(?:" + string.Join('|', patterns.Select(p => $"(?:{p})")) + @")(?:(?!\w)|(?<!\w))",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, MatchTimeout);
 
     public static int Count(ScamWords words) => BitOperations.PopCount((uint)words);
 
     /// <summary>"lure, money, code".</summary>
     public static string Describe(ScamWords words) =>
-        string.Join(", ", Groups.Where(g => words.HasFlag(g.Group)).Select(g => g.Group.ToString().ToLowerInvariant()));
+        string.Join(", ", AllGroups.Where(g => words.HasFlag(g)).Select(g => g.ToString().ToLowerInvariant()));
+
+    private static (ScamWords Group, Regex Pattern)[] GetCompiled(ScamWordOptions words)
+    {
+        // The options are a new object after each reload, so this compiles once per reload.
+        var compiled = _compiled;
+        if (compiled is null || !ReferenceEquals(compiled.Source, words))
+        {
+            compiled = new Compiled(words, words.GetGroups().Select(g => (g.Group, Build(g.Patterns))).ToArray());
+            _compiled = compiled;
+        }
+        return compiled.Groups;
+    }
+
+    private sealed record Compiled(ScamWordOptions Source, (ScamWords Group, Regex Pattern)[] Groups);
 }

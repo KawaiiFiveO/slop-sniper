@@ -46,6 +46,9 @@ public sealed class ScamOptions
     /// it only ever raises a "possible scam" alert.</summary>
     public bool OcrAllImages { get; set; }
 
+    /// <summary>The words OCR looks for in images.</summary>
+    public ScamWordOptions Words { get; set; } = new();
+
     public void Validate(List<string> errors, ulong guildId)
     {
         if (!Enabled)
@@ -96,5 +99,7 @@ public sealed class ScamOptions
                 errors.Add($"Scams.TrustedDomains: \"{domain}\" isn't a domain like example.com.");
             }
         }
+
+        Words.Validate(errors);
     }
 }

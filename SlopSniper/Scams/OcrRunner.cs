@@ -139,7 +139,11 @@ public sealed class OcrRunner(ImageDownloader downloader, IOptionsMonitor<BotOpt
             }
 
             Interlocked.Increment(ref _reads);
-            var (groups, keywords) = ScamKeywords.Find(text);
+            var (groups, keywords, timedOut) = ScamKeywords.Find(text, options.CurrentValue.Scams.Words);
+            if (timedOut != ScamWords.None)
+            {
+                logger.LogWarning("Scams.Words patterns took too long on {Image}: {Groups}", image.LogName, ScamKeywords.Describe(timedOut));
+            }
             return new OcrResult(image, text, groups, keywords, null, stopwatch.Elapsed);
         }
         finally
@@ -213,6 +217,17 @@ public sealed class OcrRunner(ImageDownloader downloader, IOptionsMonitor<BotOpt
         {
             // ENOENT on Linux, ERROR_FILE_NOT_FOUND on Windows.
             return ("", ex.NativeErrorCode == 2 ? $"{command} not found" : $"couldn't run {command}: {ex.Message}");
+        }
+
+        // Nice 19, so the bot's own threads (gateway heartbeats, other jobs) run first. Other services are
+        // protected by CPUWeight= in the systemd unit.
+        try
+        {
+            process.PriorityClass = ProcessPriorityClass.Idle;
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
+        {
+            // Already exited, or not allowed; it only runs at normal priority.
         }
 
         using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);

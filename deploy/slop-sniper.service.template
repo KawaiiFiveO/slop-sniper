@@ -11,6 +11,10 @@ User=@USER@
 WorkingDirectory=@DIR@
 ExecStart=@DIR@/SlopSniper
 
+# When the CPU is busy, SoftEther and FaustBot (default weight 100) get 5x the share of this service,
+# OCR included. When it's idle, OCR still runs at full speed.
+CPUWeight=20
+
 # Restart after a crash, but not after a config error (exit 78).
 Restart=on-failure
 RestartSec=5
