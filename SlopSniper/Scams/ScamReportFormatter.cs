@@ -6,11 +6,14 @@ namespace SlopSniper.Scams;
 /// <summary>Builds the moderator alerts for scam detections and their buttons.</summary>
 public static class ScamReportFormatter
 {
-    public const string UndoButtonPrefix = "scam-undo";
+    // Carries the bot's timeout too. Alerts posted before that have the legacy prefix.
+    public const string UndoButtonPrefix = "scam-revert";
+    public const string LegacyUndoButtonPrefix = "scam-undo";
     public const string ConfirmButtonPrefix = "scam-act";
     public const string DismissButtonPrefix = "scam-ignore";
 
-    private const string UndoFooter = "Undo lifts the timeout and forgets images and domains. Deleted posts can't be restored.";
+    private const string UndoFooter =
+        "Undo lifts the bot's timeout (or puts back a shorter one it replaced) and forgets images and domains. Deleted posts can't be restored.";
 
     // Enough to recognise the scam; embed fields hold up to 1024 characters.
     private const int MaxTextLength = 500;
@@ -40,10 +43,17 @@ public static class ScamReportFormatter
             .AddField("Actions", "None yet. Not a scam also forgets the known images and domains it matched.")
             .Build();
 
-    public static MessageComponent BuildUndoButton(ulong eventId, ulong authorId) =>
+    /// <summary>The bot's timeout and the one it replaced go in the ID as Unix milliseconds, 0 for none.</summary>
+    public static MessageComponent BuildUndoButton(ulong eventId, ulong authorId, ScamActions actions) =>
         new ComponentBuilder()
-            .WithButton("Undo", $"{UndoButtonPrefix}:{eventId}:{authorId}", ButtonStyle.Secondary)
+            .WithButton("Undo", $"{UndoButtonPrefix}:{eventId}:{authorId}:{ToUnixMs(actions.TimedOutUntil)}:{ToUnixMs(actions.PreviousTimeout)}",
+                ButtonStyle.Secondary)
             .Build();
+
+    /// <summary>The inverse of the timestamps in <see cref="BuildUndoButton"/>.</summary>
+    public static DateTimeOffset? FromUnixMs(long ms) => ms > 0 ? DateTimeOffset.FromUnixTimeMilliseconds(ms) : null;
+
+    private static long ToUnixMs(DateTimeOffset? at) => at?.ToUnixTimeMilliseconds() ?? 0;
 
     public static MessageComponent BuildSuspiciousButtons(PostRef post, ulong authorId) =>
         new ComponentBuilder()
@@ -68,13 +78,18 @@ public static class ScamReportFormatter
             .Build();
 
     /// <summary>An alert after a moderator pressed Undo.</summary>
-    public static Embed MarkUndone(IEmbed alert, string moderator, string? timeoutError, KnownCounts forgotten) =>
+    public static Embed MarkUndone(IEmbed alert, string moderator, TimeoutUndo timeout, KnownCounts forgotten) =>
         alert.ToEmbedBuilder()
             .WithColor(ClosedColor)
-            .AddField("Undone", (timeoutError is null
-                ? $"By {moderator}. Timeout lifted; the author's posts are treated normally again."
-                : $"By {moderator}, but the timeout couldn't be lifted: {timeoutError}.")
-                + " " + FormatForgotten(forgotten))
+            .AddField("Undone", timeout.Result switch
+            {
+                TimeoutUndoResult.Lifted => $"By {moderator}. Timeout lifted.",
+                TimeoutUndoResult.Restored => $"By {moderator}. Put back the earlier timeout the bot replaced, ending {FormatTime(timeout.Until)}.",
+                TimeoutUndoResult.LeftInPlace => $"By {moderator}. The timeout was changed after the bot set it, so it was left as it is (ends {FormatTime(timeout.Until)}).",
+                TimeoutUndoResult.Failed => $"By {moderator}, but the timeout couldn't be lifted: {timeout.Error}.",
+                _ => $"By {moderator}. No timeout of the bot's to lift.",
+            }
+                + " The author's posts are treated normally again. " + FormatForgotten(forgotten))
             .Build();
 
     /// <summary>The alert with its "Actions" field removed, to be replaced.</summary>
@@ -168,11 +183,17 @@ public static class ScamReportFormatter
 
         if (actions.TimedOutFor is { } duration)
         {
-            lines.Add($"Timed out for {FormatDuration(duration)}.");
+            lines.Add(actions.PreviousTimeout is { } replaced
+                ? $"Timed out for {FormatDuration(duration)}, replacing a shorter timeout ending {FormatTime(replaced)}."
+                : $"Timed out for {FormatDuration(duration)}.");
         }
         else if (actions.TimeoutError is not null)
         {
             lines.Add($"Couldn't time out: {actions.TimeoutError}.");
+        }
+        else if (actions.PreviousTimeout is { } longer)
+        {
+            lines.Add($"Already timed out until {FormatTime(longer)}, longer than TimeoutMinutes, so left as it was.");
         }
         else
         {
@@ -214,6 +235,9 @@ public static class ScamReportFormatter
         var shown = text.Length <= MaxTextLength ? text : text[..(MaxTextLength - 1)] + "…";
         return $"```\n{shown.Replace('`', '\'')}\n```";
     }
+
+    private static string FormatTime(DateTimeOffset? at) =>
+        at is { } value ? TimestampTag.FormatFromDateTimeOffset(value, TimestampTagStyles.Relative) : "at an unknown time";
 
     private static string FormatDuration(TimeSpan duration)
     {

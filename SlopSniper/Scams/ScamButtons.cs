@@ -25,20 +25,40 @@ public sealed class ScamButtons(
     IHostApplicationLifetime lifetime,
     ILogger<ScamButtons> logger) : InteractionModuleBase<SocketInteractionContext>
 {
-    [ComponentInteraction(ScamReportFormatter.UndoButtonPrefix + ":*:*")]
-    public async Task Undo(ulong eventId, ulong authorId)
+    /// <param name="timedOutUntil">The bot's timeout, in Unix milliseconds; 0 if it didn't set one.</param>
+    /// <param name="previousTimeout">The shorter timeout it replaced; 0 if none.</param>
+    [ComponentInteraction(ScamReportFormatter.UndoButtonPrefix + ":*:*:*:*")]
+    public async Task Undo(ulong eventId, ulong authorId, long timedOutUntil, long previousTimeout)
     {
         // Acknowledges the click; the alert is edited below.
         await DeferAsync();
 
-        var timeoutError = await moderator.RemoveTimeoutAsync(authorId, Context.User.Username);
+        var timeout = await moderator.UndoTimeoutAsync(authorId, ScamReportFormatter.FromUnixMs(timedOutUntil),
+            ScamReportFormatter.FromUnixMs(previousTimeout), Context.User.Username);
+        await UndoAsync(eventId, authorId, timeout);
+    }
+
+    /// <summary>Alerts posted before the bot recorded its timeouts. Lifts any timeout, as it did then.</summary>
+    [ComponentInteraction(ScamReportFormatter.LegacyUndoButtonPrefix + ":*:*")]
+    public async Task UndoLegacy(ulong eventId, ulong authorId)
+    {
+        await DeferAsync();
+
+        var error = await moderator.RemoveTimeoutAsync(authorId, Context.User.Username);
+        await UndoAsync(eventId, authorId, error is null
+            ? new TimeoutUndo(TimeoutUndoResult.Lifted)
+            : new TimeoutUndo(TimeoutUndoResult.Failed, Error: error));
+    }
+
+    private async Task UndoAsync(ulong eventId, ulong authorId, TimeoutUndo timeout)
+    {
         tracker.Unflag(authorId);
         var forgotten = await known.RemoveEventAsync(eventId);
         stats.Undo();
-        logger.LogInformation("Scam event {EventId} for user {UserId} undone by {Moderator} ({ModeratorId}); forgot {Images} images and {Domains} domains.",
-            eventId, authorId, Context.User.Username, Context.User.Id, forgotten.Images, forgotten.Domains);
+        logger.LogInformation("Scam event {EventId} for user {UserId} undone by {Moderator} ({ModeratorId}); timeout {Timeout}, forgot {Images} images and {Domains} domains.",
+            eventId, authorId, Context.User.Username, Context.User.Id, timeout.Result, forgotten.Images, forgotten.Domains);
 
-        await UpdateAlertAsync(alert => ScamReportFormatter.MarkUndone(alert, Context.User.Mention, timeoutError, forgotten), null);
+        await UpdateAlertAsync(alert => ScamReportFormatter.MarkUndone(alert, Context.User.Mention, timeout, forgotten), null);
     }
 
     [ComponentInteraction(ScamReportFormatter.ConfirmButtonPrefix + ":*:*:*")]
@@ -67,7 +87,7 @@ public sealed class ScamButtons(
             messageId, authorId, Context.User.Username, Context.User.Id);
 
         await UpdateAlertAsync(alert => ScamReportFormatter.MarkConfirmed(alert, Context.User.Mention, outcome),
-            ScamReportFormatter.BuildUndoButton(messageId, authorId));
+            ScamReportFormatter.BuildUndoButton(messageId, authorId, outcome.Actions));
     }
 
     [ComponentInteraction(ScamReportFormatter.DismissButtonPrefix + ":*:*")]

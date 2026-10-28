@@ -55,6 +55,7 @@ public sealed class ScamReportCommand(
         var actions = outcome.Actions;
         var timeout = actions.TimedOutFor is not null ? "timed out the author"
             : actions.TimeoutError is { } error ? $"couldn't time out the author ({error})"
+            : actions.PreviousTimeout is not null ? "left the author's longer timeout in place"
             : "didn't time out the author";
         await FollowupAsync($"Deleted {actions.Deleted} of {actions.ToDelete} posts, {timeout}, and learned {ScamReportFormatter.DescribeLearned(outcome.Learned)}. Details are in the log channel.",
             ephemeral: true);

@@ -47,7 +47,7 @@ public sealed class ScamResponder(
         {
             var embed = ScamReportFormatter.BuildAlert(detection, outcome, startupOptions.Value.GuildId,
                 options.CurrentValue.Scams.BurstWindowSeconds, evidence?.FileName);
-            await SendAsync(embed, ScamReportFormatter.BuildUndoButton(detection.EventId, detection.AuthorId), evidence);
+            await SendAsync(embed, ScamReportFormatter.BuildUndoButton(detection.EventId, detection.AuthorId, actions), evidence);
         }
         return outcome;
     }
