@@ -22,6 +22,7 @@
     "DeleteMessages": true,
     "TimeoutMinutes": 1440,
     "ExemptRoleIds": [],
+    "HoneypotChannelIds": [],
     "HashDistance": 8,
     "MaxKnownImages": 500,
     "TrustedDomains": [],

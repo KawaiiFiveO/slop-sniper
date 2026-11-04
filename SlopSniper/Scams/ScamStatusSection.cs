@@ -4,13 +4,15 @@ using SlopSniper.Services;
 namespace SlopSniper.Scams;
 
 /// <summary>The scam detection part of /sniper status.</summary>
-public sealed class ScamStatusSection(ScamStats stats, KnownScams known, OcrRunner ocr) : IStatusSection
+public sealed class ScamStatusSection(ScamStats stats, KnownScams known, OcrRunner ocr, ScamQueue queue) : IStatusSection
 {
     public void AppendStatus(StringBuilder status)
     {
         status
             .Append("**Scam detection**\n")
             .Append("Known scam images: ").Append(known.ImageCount).Append(" · domains: ").Append(known.DomainCount).Append('\n')
+            .Append("Queue: ").Append(queue.Waiting).Append(" waiting, ").Append(queue.WaitingToRead).Append(" waiting for OCR · last post checked ")
+            .Append(queue.LastChecked.Describe()).Append('\n')
             .Append("OCR: ").Append(ocr.Status).Append('\n')
             .Append("- ").Append(stats.Detections).Append(" detections, ").Append(stats.FollowUps).Append(" more copies after them, ")
             .Append(stats.SuspiciousAlerts).Append(" possible scams asked about\n")

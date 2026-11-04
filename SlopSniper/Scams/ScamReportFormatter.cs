@@ -27,7 +27,7 @@ public static class ScamReportFormatter
         ScamDetection detection, ScamOutcome outcome, ulong guildId, int burstWindowSeconds, string? evidenceFile)
     {
         var actions = outcome.Actions;
-        return BuildEmbed(detection, guildId, burstWindowSeconds, evidenceFile, showJumpLink: actions.Deleted < detection.Posts.Count)
+        return BuildEmbed(detection, guildId, burstWindowSeconds, evidenceFile, showJumpLink: actions.Deleted + actions.AlreadyGone < detection.Posts.Count)
             .WithTitle(actions.Deleted > 0 ? "Scam post removed" : "Scam post detected")
             .WithColor(ScamColor)
             .AddField("Actions", FormatActions(outcome))
@@ -134,6 +134,10 @@ public static class ScamReportFormatter
         {
             lines.Add($"Reported by {signals.ReportedBy}");
         }
+        if (signals.Honeypot)
+        {
+            lines.Add("Posted in a honeypot channel");
+        }
         if (signals.Channels > 1)
         {
             var repeated = signals.Repeated switch
@@ -174,7 +178,7 @@ public static class ScamReportFormatter
         }
         else
         {
-            lines.Add($"Deleted {actions.Deleted} of {actions.ToDelete} posts.");
+            lines.Add($"Deleted {DescribeDeleted(actions)}.");
             if (actions.DeleteError is not null)
             {
                 lines.Add($"Couldn't delete the rest: {actions.DeleteError}.");
@@ -190,6 +194,10 @@ public static class ScamReportFormatter
         else if (actions.TimeoutError is not null)
         {
             lines.Add($"Couldn't time out: {actions.TimeoutError}.");
+        }
+        else if (actions.AuthorGone)
+        {
+            lines.Add("Not timed out: they're no longer in the server (left or banned).");
         }
         else if (actions.PreviousTimeout is { } longer)
         {
@@ -207,6 +215,11 @@ public static class ScamReportFormatter
 
         return string.Join('\n', lines);
     }
+
+    /// <summary>"1 of 3 posts (2 already gone)": posts someone else deleted first, e.g. a bot that banned the author,
+    /// aren't counted as the bot's.</summary>
+    public static string DescribeDeleted(ScamActions actions) =>
+        $"{actions.Deleted} of {actions.ToDelete} posts" + (actions.AlreadyGone > 0 ? $" ({actions.AlreadyGone} already gone)" : "");
 
     /// <summary>"1 new scam image and 2 new scam domains", or "nothing new".</summary>
     public static string DescribeLearned(KnownCounts learned) =>

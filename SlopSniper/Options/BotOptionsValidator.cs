@@ -25,7 +25,7 @@ public sealed class BotOptionsValidator : IValidateOptions<BotOptions>
         }
 
         options.Provenance.Validate(errors);
-        options.Scams.Validate(errors, options.GuildId);
+        options.Scams.Validate(errors, options.GuildId, options.ExcludedChannelIds);
 
         return errors.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(errors);
     }

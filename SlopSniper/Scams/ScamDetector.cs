@@ -64,7 +64,8 @@ public sealed class ScamDetector(
             burst.Repeated,
             Shape: HasScamShape(images.Count, content.Text, settings),
             images.Count,
-            DomainMatches: known.CountDomainMatches(content.Domains));
+            DomainMatches: known.CountDomainMatches(content.Domains),
+            Honeypot: settings.HoneypotChannelIds.Contains(channel.Id));
         var verdict = ScamRules.Decide(signals, settings);
         if (verdict == ScamVerdict.Scam)
         {

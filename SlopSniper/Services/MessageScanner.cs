@@ -21,6 +21,15 @@ public sealed class MessageScanner(
 
     private readonly IMessageModule[] _modules = modules.ToArray();
 
+    /// <summary>When the bot started, for /sniper status.</summary>
+    public DateTimeOffset StartedAt { get; } = time.GetUtcNow();
+
+    /// <summary>The last message that passed the filters, paused or not: shows that Discord is sending messages.</summary>
+    public LastSeen LastMessage { get; } = new(time);
+
+    /// <summary>The last of those with images.</summary>
+    public LastSeen LastImage { get; } = new(time);
+
     public Task StartAsync(CancellationToken cancellationToken)
     {
         client.MessageReceived += OnMessageReceivedAsync;
@@ -44,6 +53,11 @@ public sealed class MessageScanner(
 
         // Link previews arrive later, as an update.
         var images = ImageFormats.GetImages(message, includeLinkPreviews: false);
+        LastMessage.Mark();
+        if (images.Count > 0)
+        {
+            LastImage.Mark();
+        }
         foreach (var module in await GetActiveModulesAsync())
         {
             module.OnMessage(userMessage, channel, images);

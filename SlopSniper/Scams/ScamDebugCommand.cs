@@ -74,7 +74,8 @@ public sealed class ScamDebugCommand(
         var linkText = content.Domains.Count > 0 ? content.Text : null;
         var (channels, repeated, flagged) = inHome ? tracker.Inspect(message.Author.Id, images, linkText) : (0, Repeated.None, false);
         var shape = !fromPreviews && ScamDetector.HasScamShape(images.Count, content.Text, settings);
-        var signals = new ScamSignals(Math.Max(1, channels), repeated, shape, images.Count, matches, domainMatches);
+        var honeypot = inHome && settings.HoneypotChannelIds.Contains(message.Channel.Id);
+        var signals = new ScamSignals(Math.Max(1, channels), repeated, shape, images.Count, matches, domainMatches, Honeypot: honeypot);
 
         // Always read here, but the words only count where the automatic scan would read them.
         var wouldRead = ScamRules.ShouldRead(signals, settings) && ScamRules.Decide(signals, settings) != ScamVerdict.Scam;
@@ -131,6 +132,10 @@ public sealed class ScamDebugCommand(
                 Repeated.Images => "the same images",
                 _ => linkText is null ? "these images" : "these images or this text and link",
             };
+            if (honeypot)
+            {
+                post.Append("Posted in a honeypot channel.\n");
+            }
             post.Append(CultureInfo.InvariantCulture, $"Burst: {channels} channel(s) with {what} in the last {settings.BurstWindowSeconds}s")
                 .Append(" (counts only posts the bot saw arrive)\n")
                 .Append(CultureInfo.InvariantCulture, $"Author: {author}");

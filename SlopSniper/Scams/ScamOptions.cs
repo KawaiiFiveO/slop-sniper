@@ -29,6 +29,10 @@ public sealed class ScamOptions
     /// members never are either.</summary>
     public List<ulong> ExemptRoleIds { get; set; } = [];
 
+    /// <summary>Channels no real member posts in. Any post with images or links there is acted on at once and its
+    /// images and domains learned. Threads in them don't count.</summary>
+    public List<ulong> HoneypotChannelIds { get; set; } = [];
+
     /// <summary>Two images whose perceptual hashes differ in at most this many of 64 bits count as the same image.</summary>
     public int HashDistance { get; set; } = 8;
 
@@ -49,7 +53,7 @@ public sealed class ScamOptions
     /// <summary>The words OCR looks for in images.</summary>
     public ScamWordOptions Words { get; set; } = new();
 
-    public void Validate(List<string> errors, ulong guildId)
+    public void Validate(List<string> errors, ulong guildId, IReadOnlyCollection<ulong> excludedChannelIds)
     {
         if (!Enabled)
         {
@@ -89,6 +93,11 @@ public sealed class ScamOptions
         if (TimeoutMinutes is < 0 or > MaxTimeoutMinutes)
         {
             errors.Add($"Scams.TimeoutMinutes must be between 0 and {MaxTimeoutMinutes} (28 days).");
+        }
+
+        if (HoneypotChannelIds.FirstOrDefault(id => excludedChannelIds.Contains(id)) is var excluded and not 0)
+        {
+            errors.Add($"Scams.HoneypotChannelIds: {excluded} is also in ExcludedChannelIds, so it's never scanned.");
         }
 
         foreach (var domain in TrustedDomains)

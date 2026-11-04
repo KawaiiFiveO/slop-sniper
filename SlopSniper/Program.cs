@@ -88,7 +88,8 @@ if (IsEnabled("Provenance"))
 {
     builder.Services.AddProvenance();
 }
-builder.Services.AddHostedService<MessageScanner>();
+builder.Services.AddSingleton<MessageScanner>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<MessageScanner>());
 
 using var host = builder.Build();
 var logger = host.Services.GetRequiredService<ILogger<Program>>();

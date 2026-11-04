@@ -31,7 +31,7 @@ public sealed class ScamResponder(
         ScamDetection detection, ScamOrigin origin, bool alert, CancellationToken cancellationToken, string? moderator = null)
     {
         // Both fetched first: deleting the posts deletes their attachments too.
-        var evidence = alert ? await GetEvidenceAsync(detection.Content.Images, cancellationToken) : null;
+        var evidence = alert ? detection.Evidence ?? await CaptureEvidenceAsync(detection.Content.Images, cancellationToken) : null;
         var hashes = detection.Hashes ?? await hasher.HashAsync(detection.Content.Images, cancellationToken);
         var learned = await known.AddAsync(hashes, detection.Content.Domains, detection.EventId, origin);
 
@@ -39,9 +39,10 @@ public sealed class ScamResponder(
         var outcome = new ScamOutcome(actions, learned);
         stats.Record(actions);
         logger.LogInformation(
-            "Scam by {UserId} (event {EventId}, {Origin}): deleted {Deleted} of {ToDelete} posts, timeout {Timeout}, learned {Images} images and {Domains} domains.",
-            detection.AuthorId, detection.EventId, origin, actions.Deleted, actions.ToDelete,
-            actions.TimedOutFor is not null ? "applied" : actions.TimeoutError ?? "off", learned.Images, learned.Domains);
+            "Scam by {UserId} (event {EventId}, {Origin}): deleted {Deleted} of {ToDelete} posts ({Gone} already gone), timeout {Timeout}, learned {Images} images and {Domains} domains.",
+            detection.AuthorId, detection.EventId, origin, actions.Deleted, actions.ToDelete, actions.AlreadyGone,
+            actions.TimedOutFor is not null ? "applied" : actions.TimeoutError ?? (actions.AuthorGone ? "not in the server" : "off"),
+            learned.Images, learned.Domains);
 
         if (alert)
         {
@@ -59,7 +60,7 @@ public sealed class ScamResponder(
         logger.LogInformation("Possible scam by {UserId} in message {MessageId}: {Images} known image matches, {Domains} known domain matches.",
             detection.AuthorId, detection.Post.MessageId, detection.Signals.HashMatches, detection.Signals.DomainMatches);
 
-        var evidence = await GetEvidenceAsync(detection.Content.Images, cancellationToken);
+        var evidence = detection.Evidence ?? await CaptureEvidenceAsync(detection.Content.Images, cancellationToken);
         var embed = ScamReportFormatter.BuildSuspiciousAlert(detection, startupOptions.Value.GuildId,
             options.CurrentValue.Scams.BurstWindowSeconds, evidence?.FileName);
         await SendAsync(embed, ScamReportFormatter.BuildSuspiciousButtons(detection.Post, detection.AuthorId), evidence);
@@ -77,23 +78,20 @@ public sealed class ScamResponder(
         };
     }
 
-    private async Task SendAsync(Embed embed, MessageComponent components, FileAttachment? evidence)
+    private async Task SendAsync(Embed embed, MessageComponent components, ScamEvidence? evidence)
     {
-        if (evidence is { } file)
-        {
-            using (file)
-            {
-                await reporter.SendToLogChannelAsync(embed: embed, components: components, file: file);
-            }
-        }
-        else
+        if (evidence is null)
         {
             await reporter.SendToLogChannelAsync(embed: embed, components: components);
+            return;
         }
+
+        using var file = new FileAttachment(new MemoryStream(evidence.Bytes), evidence.FileName);
+        await reporter.SendToLogChannelAsync(embed: embed, components: components, file: file);
     }
 
     /// <summary>A small copy of the first unspoilered image, for the alert. The originals disappear with the posts.</summary>
-    private async Task<FileAttachment?> GetEvidenceAsync(IReadOnlyList<ImageSource> images, CancellationToken cancellationToken)
+    public async Task<ScamEvidence?> CaptureEvidenceAsync(IReadOnlyList<ImageSource> images, CancellationToken cancellationToken)
     {
         if (images.FirstOrDefault(i => !i.IsSpoiler) is not { } image)
         {
@@ -105,7 +103,7 @@ public sealed class ScamResponder(
             if (await downloader.DownloadResizedAsync(image, EvidenceMaxSide, cancellationToken) is { } bytes
                 && ImageFormats.Sniff(bytes) is { } mediaType)
             {
-                return new FileAttachment(new MemoryStream(bytes), "evidence." + mediaType["image/".Length..]);
+                return new ScamEvidence(bytes, "evidence." + mediaType["image/".Length..]);
             }
         }
         catch (Exception ex) when (ex is HttpRequestException or IOException or TaskCanceledException

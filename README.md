@@ -64,6 +64,8 @@ Copy `config.example.json` to `config.json` next to the binary.
 
 `Scams.ExemptRoleIds` - Role IDs that are never acted on. (Moderators never are)
 
+`Scams.HoneypotChannelIds` - Channel IDs where any post with images or links is acted on at once and learned. (Not in `ExcludedChannelIds`)
+
 `Scams.HashDistance` - Max bits (of 64) an image can differ from a known scam image. (0-16)
 
 `Scams.MaxKnownImages` - Known scam images to keep. (10-5000)

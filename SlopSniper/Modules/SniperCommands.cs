@@ -1,6 +1,7 @@
 using System.Text;
 using Discord;
 using Discord.Interactions;
+using Discord.WebSocket;
 using Microsoft.Extensions.Logging;
 using SlopSniper.Options;
 using SlopSniper.Services;
@@ -18,6 +19,8 @@ namespace SlopSniper.Modules;
 public sealed class SniperCommands(
     IEnumerable<IMessageModule> modules,
     IEnumerable<IStatusSection> sections,
+    MessageScanner scanner,
+    DiscordSocketClient client,
     StateStore state,
     Reporter reporter,
     ILogger<SniperCommands> logger) : InteractionModuleBase<SocketInteractionContext>
@@ -32,7 +35,11 @@ public sealed class SniperCommands(
         var paused = await state.ReadAsync(s => s.PausedModules.ToArray());
         var reply = new StringBuilder("Automatic scanning: ")
             .AppendJoin(" · ", _modules.Select(m => $"{m.DisplayName} {(paused.Contains(m.Name) ? "**paused**" : "on")}"))
-            .Append('\n');
+            .Append('\n')
+            .Append("Up since ").Append(TimestampTag.FormatFromDateTimeOffset(scanner.StartedAt, TimestampTagStyles.Relative))
+            .Append(" · gateway latency ").Append(client.Latency).Append(" ms\n")
+            .Append("Last message seen ").Append(scanner.LastMessage.Describe())
+            .Append(" · last image ").Append(scanner.LastImage.Describe()).Append('\n');
 
         foreach (var section in sections)
         {

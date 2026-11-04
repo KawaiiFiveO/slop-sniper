@@ -16,7 +16,9 @@ public enum ScamVerdict
 /// <summary>When the bot acts, and on whom it never does.</summary>
 public static class ScamRules
 {
-    /// <summary>A burst across enough channels, or two signals that back each other up. A single known image or domain
+    /// <summary>A post in a honeypot channel, a burst across enough channels, or two signals that back each other up.
+    /// A honeypot is a channel no real member posts in, so a post there is taken as a scam at once, before anti-spam
+    /// bots ban the author and delete it: that's what lets the bot learn its images. A single known image or domain
     /// on its own only raises an alert, since a perceptual hash can mistake two similar-looking screenshots for each
     /// other, and a learned domain may have been an innocent link in a scam post. Scam words read in the images never
     /// act on their own either: OCR misreads, and people share screenshots of scams to warn others.</summary>
@@ -36,7 +38,8 @@ public static class ScamRules
         var scamWords = $"scam words in the images ({words} groups)";
 
         (var verdict, reason) =
-            signals.Channels >= settings.BurstChannels ? (ScamVerdict.Scam, $"same {repeated} in {settings.BurstChannels}+ channels")
+            signals.Honeypot ? (ScamVerdict.Scam, "posted in a honeypot channel")
+            : signals.Channels >= settings.BurstChannels ? (ScamVerdict.Scam, $"same {repeated} in {settings.BurstChannels}+ channels")
             : burst && signals.Shape ? (ScamVerdict.Scam, $"same {repeated} in 2 channels, and scam shape")
             : known >= 2 ? (ScamVerdict.Scam, knownTwo)
             : known >= 1 && burst ? (ScamVerdict.Scam, $"{knownOne}, in 2 channels")

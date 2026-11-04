@@ -7,21 +7,37 @@ using SlopSniper.Options;
 
 namespace SlopSniper.Scams;
 
-/// <param name="Deleted">Copies deleted, including ones that were already gone.</param>
+/// <param name="Deleted">Copies the bot deleted.</param>
+/// <param name="AlreadyGone">Copies already deleted by someone else, e.g. another bot banning the author.</param>
 /// <param name="DeleteError">Why some copies couldn't be deleted, if any couldn't.</param>
 /// <param name="TimedOutFor">Null if the author wasn't timed out.</param>
 /// <param name="TimeoutError">Why the timeout failed, if it was attempted.</param>
+/// <param name="AuthorGone">The author wasn't in the server any more (left, or banned by someone else), so there was
+/// no one to time out.</param>
 /// <param name="TimedOutUntil">When the bot's timeout ends, so Undo can tell it from one set since.</param>
 /// <param name="PreviousTimeout">When a timeout the author already had ends: replaced if it was shorter (Undo puts it
 /// back), otherwise left as it was and the author isn't timed out again.</param>
 public sealed record ScamActions(
     int Deleted,
+    int AlreadyGone,
     int ToDelete,
     string? DeleteError,
     TimeSpan? TimedOutFor,
     string? TimeoutError,
+    bool AuthorGone,
     DateTimeOffset? TimedOutUntil = null,
     DateTimeOffset? PreviousTimeout = null);
+
+public enum DeleteResult
+{
+    /// <summary>DeleteMessages is off.</summary>
+    Off,
+    Deleted,
+
+    /// <summary>Someone else deleted it first.</summary>
+    AlreadyGone,
+    Failed,
+}
 
 public enum TimeoutUndoResult
 {
@@ -60,16 +76,21 @@ public sealed class ScamModerator(
     {
         var settings = options.CurrentValue.Scams;
 
-        var (deleted, deleteError) = settings.DeleteMessages ? await DeleteAsync(posts, auditReason) : (0, null);
+        var (deleted, gone, deleteError) = settings.DeleteMessages ? await DeleteAsync(posts, auditReason) : (0, 0, null);
 
         DateTimeOffset? timedOutUntil = null;
         DateTimeOffset? previous = null;
         string? timeoutError = null;
+        var authorGone = false;
         if (settings.TimeoutMinutes > 0)
         {
             timeoutError = await RunAsync(async () =>
             {
-                var user = await GetFreshMemberAsync(authorId) ?? throw new InvalidOperationException("they already left the server");
+                if (await GetFreshMemberAsync(authorId) is not { } user)
+                {
+                    authorGone = true;
+                    return;
+                }
                 var now = time.GetUtcNow();
                 var until = now + TimeSpan.FromMinutes(settings.TimeoutMinutes);
                 previous = user.TimedOutUntil > now ? user.TimedOutUntil : null;
@@ -82,20 +103,20 @@ public sealed class ScamModerator(
             }, "time out user", authorId);
         }
 
-        return new ScamActions(deleted, settings.DeleteMessages ? posts.Count : 0, deleteError,
-            timedOutUntil is null ? null : TimeSpan.FromMinutes(settings.TimeoutMinutes), timeoutError,
+        return new ScamActions(deleted, gone, settings.DeleteMessages ? posts.Count : 0, deleteError,
+            timedOutUntil is null ? null : TimeSpan.FromMinutes(settings.TimeoutMinutes), timeoutError, authorGone,
             timedOutUntil, timeoutError is null ? previous : null);
     }
 
     /// <summary>Deletes one more copy from an author who was already acted on.</summary>
-    public async Task<bool> DeleteFollowUpAsync(PostRef post)
+    public async Task<DeleteResult> DeleteFollowUpAsync(PostRef post)
     {
         if (!options.CurrentValue.Scams.DeleteMessages)
         {
-            return false;
+            return DeleteResult.Off;
         }
-        var (deleted, _) = await DeleteAsync([post], FollowUpReason);
-        return deleted == 1;
+        var (deleted, gone, _) = await DeleteAsync([post], FollowUpReason);
+        return deleted == 1 ? DeleteResult.Deleted : gone == 1 ? DeleteResult.AlreadyGone : DeleteResult.Failed;
     }
 
     /// <summary>Undoes the bot's timeout: puts back the shorter one it replaced, or lifts it. Leaves any other timeout,
@@ -163,10 +184,10 @@ public sealed class ScamModerator(
         }
     }
 
-    private async Task<(int Deleted, string? Error)> DeleteAsync(IReadOnlyList<PostRef> posts, string auditReason)
+    private async Task<(int Deleted, int Gone, string? Error)> DeleteAsync(IReadOnlyList<PostRef> posts, string auditReason)
     {
         var guild = client.GetGuild(startupOptions.Value.GuildId);
-        var deleted = 0;
+        var (deleted, gone) = (0, 0);
         string? error = null;
         foreach (var post in posts)
         {
@@ -176,19 +197,24 @@ public sealed class ScamModerator(
                 continue;
             }
 
+            var notFound = false;
             var failure = await RunAsync(
                 () => channel.DeleteMessageAsync(post.MessageId, new RequestOptions { AuditLogReason = auditReason }),
-                "delete message", post.MessageId);
-            if (failure is null)
-            {
-                deleted++;
-            }
-            else
+                "delete message", post.MessageId, () => notFound = true);
+            if (failure is not null)
             {
                 error = failure;
             }
+            else if (notFound)
+            {
+                gone++;
+            }
+            else
+            {
+                deleted++;
+            }
         }
-        return (deleted, error);
+        return (deleted, gone, error);
     }
 
     /// <summary>The member, or null if they left the server.</summary>
@@ -203,8 +229,9 @@ public sealed class ScamModerator(
     private async Task<IGuildUser?> GetFreshMemberAsync(ulong userId) =>
         await client.Rest.GetGuildUserAsync(startupOptions.Value.GuildId, userId);
 
-    /// <returns>Null on success (a 404 counts: whatever it was is already gone), otherwise why it failed.</returns>
-    private async Task<string?> RunAsync(Func<Task> action, string what, ulong id)
+    /// <param name="onNotFound">Called on a 404, which counts as success: whatever it was is already gone.</param>
+    /// <returns>Null on success, otherwise why it failed.</returns>
+    private async Task<string?> RunAsync(Func<Task> action, string what, ulong id, Action? onNotFound = null)
     {
         try
         {
@@ -213,6 +240,7 @@ public sealed class ScamModerator(
         }
         catch (Discord.Net.HttpException ex) when (ex.HttpCode == HttpStatusCode.NotFound)
         {
+            onNotFound?.Invoke();
             return null;
         }
         catch (Discord.Net.HttpException ex) when (ex.HttpCode == HttpStatusCode.Forbidden)

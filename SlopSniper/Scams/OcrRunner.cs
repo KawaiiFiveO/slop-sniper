@@ -22,7 +22,11 @@ public sealed record OcrScan(ScamWords Groups, IReadOnlyList<string> Keywords, I
 /// <summary>Reads text in images with tesseract, run as a child process so its memory is returned as soon as it
 /// exits. One image at a time, on one thread, with a time limit: the VPS is small and shared. Only used for posts that
 /// already look suspicious, unless Scams.OcrAllImages is on.</summary>
-public sealed class OcrRunner(ImageDownloader downloader, IOptionsMonitor<BotOptions> options, ILogger<OcrRunner> logger)
+public sealed class OcrRunner(
+    ImageDownloader downloader,
+    TimeProvider time,
+    IOptionsMonitor<BotOptions> options,
+    ILogger<OcrRunner> logger)
 {
     /// <summary>Scam posts are usually 3–4 screenshots; reading more costs time for nothing.</summary>
     public const int MaxImages = 4;
@@ -38,13 +42,25 @@ public sealed class OcrRunner(ImageDownloader downloader, IOptionsMonitor<BotOpt
     private string? _version;
     private string? _probeError;
     private long _reads;
+    private readonly LastSeen _lastRead = new(time);
 
     /// <summary>For /sniper status.</summary>
     public string Status =>
         options.CurrentValue.Scams.OcrCommand.Length == 0 ? "off"
-        : _version is not null ? $"{_version}, {Interlocked.Read(ref _reads)} images read"
+        : _version is not null ? $"{_version}, {Interlocked.Read(ref _reads)} images read, last {_lastRead.Describe()}"
         : _probeError is not null ? $"not available ({_probeError})"
         : "not checked yet";
+
+    /// <summary>False once OcrCommand is known not to run. Never waits, unlike <see cref="IsAvailableAsync"/>, which
+    /// waits for a read in progress.</summary>
+    public bool MightBeAvailable
+    {
+        get
+        {
+            var command = options.CurrentValue.Scams.OcrCommand;
+            return command.Length > 0 && (command != _probedCommand || _version is not null);
+        }
+    }
 
     /// <summary>Whether OcrCommand runs. Checked once, and again after the command changes.</summary>
     public async Task<bool> IsAvailableAsync(CancellationToken cancellationToken)
@@ -139,6 +155,7 @@ public sealed class OcrRunner(ImageDownloader downloader, IOptionsMonitor<BotOpt
             }
 
             Interlocked.Increment(ref _reads);
+            _lastRead.Mark();
             var (groups, keywords, timedOut) = ScamKeywords.Find(text, options.CurrentValue.Scams.Words);
             if (timedOut != ScamWords.None)
             {

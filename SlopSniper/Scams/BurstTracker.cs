@@ -112,6 +112,17 @@ public sealed class BurstTracker(TimeProvider time, IOptionsMonitor<BotOptions> 
         }
     }
 
+    /// <summary>The event the author is flagged under, if they are. Unlike <see cref="Record"/>, doesn't extend the
+    /// flag.</summary>
+    public ulong? GetFlag(ulong authorId)
+    {
+        var now = time.GetUtcNow();
+        lock (_lock)
+        {
+            return _flags.TryGetValue(authorId, out var flag) && flag.Until > now ? flag.EventId : null;
+        }
+    }
+
     /// <summary>Forgets the author after a moderator undid the action, so their posts are treated normally again.</summary>
     public void Unflag(ulong authorId)
     {

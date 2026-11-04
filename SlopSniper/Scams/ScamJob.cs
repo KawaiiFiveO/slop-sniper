@@ -22,6 +22,7 @@ public enum Repeated
 /// <param name="Words">Word groups read in the images.</param>
 /// <param name="Keywords">The words that hit them.</param>
 /// <param name="ReportedBy">Mention of the moderator who used "Report as scam".</param>
+/// <param name="Honeypot">Posted in one of Scams.HoneypotChannelIds.</param>
 public sealed record ScamSignals(
     int Channels,
     Repeated Repeated,
@@ -31,7 +32,8 @@ public sealed record ScamSignals(
     int DomainMatches = 0,
     ScamWords Words = ScamWords.None,
     IReadOnlyList<string>? Keywords = null,
-    string? ReportedBy = null);
+    string? ReportedBy = null,
+    bool Honeypot = false);
 
 /// <summary>What a post contains that the scam checks look at.</summary>
 /// <param name="Text">Including forwarded messages. Shown in alerts, never logged.</param>
@@ -48,6 +50,9 @@ public sealed record ScamContent(string Text, IReadOnlyList<ImageSource> Images,
     }
 }
 
+/// <summary>A small copy of one of a post's images, for the alert.</summary>
+public sealed record ScamEvidence(byte[] Bytes, string FileName);
+
 /// <summary>Work for <see cref="ScamQueue"/>.</summary>
 public abstract record ScamJob(ulong AuthorId, PostRef Post);
 
@@ -57,6 +62,7 @@ public abstract record ScamJob(ulong AuthorId, PostRef Post);
 /// the post that triggered it.</param>
 /// <param name="Posts">Every copy to delete, including <see cref="ScamJob.Post"/>.</param>
 /// <param name="Hashes">The images' perceptual hashes, if already computed.</param>
+/// <param name="Evidence">The copy for the alert, if already fetched.</param>
 public sealed record ScamDetection(
     ulong AuthorId,
     PostRef Post,
@@ -65,7 +71,8 @@ public sealed record ScamDetection(
     ScamContent Content,
     IReadOnlyList<PostRef> Posts,
     ScamSignals Signals,
-    IReadOnlyList<ulong>? Hashes = null) : ScamJob(AuthorId, Post);
+    IReadOnlyList<ulong>? Hashes = null,
+    ScamEvidence? Evidence = null) : ScamJob(AuthorId, Post);
 
 /// <summary>A post that isn't a scam by its metadata and links alone: to compare against known scam images, to read
 /// the text in, or to ask the moderators about.</summary>
@@ -79,6 +86,13 @@ public sealed record ScamCandidate(
     IReadOnlyList<PostRef> Posts,
     ScamSignals Signals,
     bool LinkPreview = false) : ScamJob(AuthorId, Post);
+
+/// <summary>A candidate whose images are worth reading, waiting for OCR. Its hashes and evidence copy were fetched
+/// before it was queued, so the post can still be learned from and reported if another bot deletes it in the
+/// meantime.</summary>
+/// <param name="Signals">What the checks before OCR found.</param>
+public sealed record ScamRead(ScamCandidate Candidate, ScamSignals Signals, IReadOnlyList<ulong> Hashes, ScamEvidence? Evidence)
+    : ScamJob(Candidate.AuthorId, Candidate.Post);
 
 /// <summary>Another post with images or links by an author who was already acted on: delete it without a new
 /// alert.</summary>
