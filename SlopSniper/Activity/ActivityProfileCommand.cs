@@ -15,22 +15,20 @@ public sealed class ActivityProfileCommand(
     IHostApplicationLifetime lifetime,
     ILogger<ActivityProfileCommand> logger) : InteractionModuleBase<SocketInteractionContext>
 {
-    // Every sampled post costs a request for its context, so these set how long a profile takes.
     private const int MemberPosts = 500;
-    private const int MemberSample = 60;
     private const int RegularPosts = 100;
-    private const int RegularSample = 25;
     private const int MaxRegulars = 3;
     private const int MinAppearances = 3;
-
-    // Enough to find the last real message when system messages (joins, pins) are in the way.
-    private const int ContextMessages = 3;
 
     private const int IndexRetries = 5;
     private const int MaxIndexWaitSeconds = 15;
 
+    // Past these, a profile reports what it has so far instead of failing.
+    private static readonly TimeSpan MemberBudget = TimeSpan.FromMinutes(8);
+    private static readonly TimeSpan TotalBudget = TimeSpan.FromMinutes(12);
+
     // Follow-ups stop working 15 minutes after the command.
-    private static readonly TimeSpan TimeLimit = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan TimeLimit = TimeSpan.FromMinutes(14);
 
     // Profiles make a lot of requests on a small server, so one at a time.
     private static readonly SemaphoreSlim OneAtATime = new(1, 1);
@@ -48,7 +46,7 @@ public sealed class ActivityProfileCommand(
         }
         if (!OneAtATime.Wait(0))
         {
-            await RespondAsync("Another profile is being built. Try again in a minute or two.", ephemeral: true);
+            await RespondAsync("Another profile is being built. Try again in a few minutes.", ephemeral: true);
             return;
         }
 
@@ -84,7 +82,8 @@ public sealed class ActivityProfileCommand(
 
     private async Task<string> BuildReplyAsync(ulong userId, RequestOptions options)
     {
-        var newest = SnowflakeUtils.ToSnowflake(time.GetUtcNow());
+        var started = time.GetUtcNow();
+        var newest = SnowflakeUtils.ToSnowflake(started);
         var read = await ActivityPostReader.ReadAsync(search => SearchAsync(search, options), userId, MemberPosts, newest);
         if (read is null)
         {
@@ -99,14 +98,18 @@ public sealed class ActivityProfileCommand(
         }
 
         Dictionary<ulong, int> partners = [];
-        var profile = await ProfileAsync(userId, read.Posts, MemberSample, partners, options);
+        var profile = await ProfileAsync(userId, read.Posts, started + MemberBudget, partners, options);
 
         List<ActivityProfile> regulars = [];
         foreach (var (regularId, _) in partners.Where(p => p.Value >= MinAppearances).OrderByDescending(p => p.Value).Take(MaxRegulars))
         {
+            if (time.GetUtcNow() >= started + TotalBudget)
+            {
+                break;
+            }
             if (await ActivityPostReader.ReadAsync(search => SearchAsync(search, options), regularId, RegularPosts, newest) is { Posts.Count: > 0 } regular)
             {
-                regulars.Add(await ProfileAsync(regularId, regular.Posts, RegularSample, null, options));
+                regulars.Add(await ProfileAsync(regularId, regular.Posts, started + TotalBudget, null, options));
             }
         }
 
@@ -128,50 +131,31 @@ public sealed class ActivityProfileCommand(
         return null;
     }
 
-    /// <summary>Checks an even spread of the posts, so one busy afternoon doesn't dominate. Adds the people the posts
-    /// answered to <paramref name="partners"/>.</summary>
-    private async Task<ActivityProfile> ProfileAsync(ulong userId, List<IMessage> posts, int sampleSize, Dictionary<ulong, int>? partners, RequestOptions options)
+    /// <summary>Checks every post with text against what came before it, as far as time allows. Adds the people the
+    /// posts answered to <paramref name="partners"/>.</summary>
+    private async Task<ActivityProfile> ProfileAsync(ulong userId, List<IMessage> posts, DateTimeOffset deadline, Dictionary<ulong, int>? partners, RequestOptions options)
     {
-        var withText = posts.Where(p => p.Source != MessageSource.System && !string.IsNullOrWhiteSpace(p.Content)).ToList();
-        var step = Math.Max(1.0, (double)withText.Count / sampleSize);
+        var withText = posts.Where(p => p.Source != MessageSource.System && !string.IsNullOrWhiteSpace(p.Content) && p.Channel is not null).ToList();
+        var pairs = await ActivityPostReader.PairWithPriorAsync(withText, post => FetchBeforeAsync(post, options), () => time.GetUtcNow() >= deadline);
 
         List<SampledPost> sample = [];
-        for (var position = 0.0; position < withText.Count && sample.Count < sampleSize; position += step)
+        foreach (var (post, prior, isReply) in pairs)
         {
-            var post = withText[(int)position];
-            if (post.Channel is null)
+            sample.Add(new SampledPost(post.Content, post.Timestamp, isReply, prior is null ? null : ToPrior(prior, userId)));
+            if (partners is not null && prior?.Author is { IsBot: false, IsWebhook: false } author && author.Id != userId)
             {
-                continue;
-            }
-
-            try
-            {
-                var (prior, priorAuthor, isReply) = await FindPriorAsync(post, userId, options);
-                sample.Add(new SampledPost(post.Content, post.Timestamp, isReply, prior));
-                if (partners is not null && priorAuthor is { IsBot: false, IsWebhook: false } && priorAuthor.Id != userId)
-                {
-                    partners[priorAuthor.Id] = partners.GetValueOrDefault(priorAuthor.Id) + 1;
-                }
-            }
-            catch (HttpException ex) when (ex.HttpCode is System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.NotFound)
-            {
-                // A channel the bot can search but not read, or one deleted since. The others still count.
+                partners[author.Id] = partners.GetValueOrDefault(author.Id) + 1;
             }
         }
 
         return ActivityAnalyzer.Analyze(posts.Count, posts.Count(p => p.EditedTimestamp is not null), sample);
     }
 
-    private async Task<(PriorPost? Prior, IUser? Author, bool IsReply)> FindPriorAsync(IMessage post, ulong userId, RequestOptions options)
+    /// <summary>The messages before a post, newest first, leaving out system messages (joins, pins).</summary>
+    private static async Task<IReadOnlyList<IMessage>> FetchBeforeAsync(IMessage post, RequestOptions options)
     {
-        if (post is IUserMessage { ReferencedMessage: { } referenced })
-        {
-            return (ToPrior(referenced, userId), referenced.Author, true);
-        }
-
-        var before = await post.Channel.GetMessagesAsync(post.Id, Direction.Before, ContextMessages, CacheMode.AllowDownload, options).FlattenAsync();
-        var previous = before.Where(m => m.Source != MessageSource.System).MaxBy(m => m.Id);
-        return previous is null ? (null, null, false) : (ToPrior(previous, userId), previous.Author, false);
+        var before = await post.Channel.GetMessagesAsync(post.Id, Direction.Before, DiscordConfig.MaxMessagesPerBatch, CacheMode.AllowDownload, options).FlattenAsync();
+        return before.Where(m => m.Source != MessageSource.System).OrderByDescending(m => m.Id).ToList();
     }
 
     private PriorPost ToPrior(IMessage message, ulong userId) =>
