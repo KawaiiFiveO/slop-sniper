@@ -4,8 +4,9 @@ using Discord.Net;
 
 namespace SlopSniper.Activity;
 
-/// <summary>A post and the message it followed or replied to. <see cref="Prior"/> is null if nothing came before it.</summary>
-public sealed record PostPair(IMessage Post, IMessage? Prior, bool IsReply);
+/// <summary>A post and the message it followed or replied to. <see cref="Prior"/> is null if nothing came before it.
+/// <see cref="Recent"/> is the chat shortly before it, newest first.</summary>
+public sealed record PostPair(IMessage Post, IMessage? Prior, bool IsReply, IReadOnlyList<IMessage> Recent);
 
 /// <summary>A member's posts, newest first. <see cref="Total"/> is how many Discord counted, which can be more than it
 /// returned.</summary>
@@ -14,6 +15,10 @@ public sealed record PostsRead(List<IMessage> Posts, int Total, bool StillIndexi
 public static class ActivityPostReader
 {
     private const int PageSize = DiscordConfig.MaxGuildMessageSearchLimit;
+
+    // How far back a post can plausibly be talking to someone.
+    private const int RecentMessages = 15;
+    private static readonly TimeSpan RecentWindow = TimeSpan.FromHours(1);
 
     /// <summary>Pages through a member's posts, up to <paramref name="maxPosts"/>. Null if Discord hasn't indexed the
     /// server yet.</summary>
@@ -74,7 +79,7 @@ public static class ActivityPostReader
                     }
 
                     var history = await fetchBefore(pending[index]);
-                    pairs.Add(new PostPair(pending[index], history.FirstOrDefault(), IsReply: false));
+                    pairs.Add(new PostPair(pending[index], history.FirstOrDefault(), IsReply: false, RecentBefore(pending[index], history, -1)));
                     index++;
 
                     // Older posts inside this page need no fetch of their own, as long as the message before them is
@@ -91,7 +96,7 @@ public static class ActivityPostReader
                         {
                             break;
                         }
-                        pairs.Add(new PostPair(pending[index], history[position + 1], IsReply: false));
+                        pairs.Add(new PostPair(pending[index], history[position + 1], IsReply: false, RecentBefore(pending[index], history, position)));
                     }
                 }
             }
@@ -110,7 +115,10 @@ public static class ActivityPostReader
         {
             return false;
         }
-        pairs.Add(new PostPair(post, referenced, IsReply: true));
+        pairs.Add(new PostPair(post, referenced, IsReply: true, [referenced]));
         return true;
     }
+
+    private static List<IMessage> RecentBefore(IMessage post, IReadOnlyList<IMessage> history, int position) =>
+        history.Skip(position + 1).Take(RecentMessages).Where(m => post.Timestamp - m.Timestamp <= RecentWindow).ToList();
 }

@@ -16,7 +16,11 @@ public sealed class ActivityProfileCommand(
     ILogger<ActivityProfileCommand> logger) : InteractionModuleBase<SocketInteractionContext>
 {
     private const int MemberPosts = 500;
-    private const int RegularPosts = 100;
+
+    // Regulars need enough posts for a fair hours comparison, but only their newest are checked against context.
+    private const int RegularPosts = 300;
+    private const int RegularChecked = 100;
+
     private const int MaxRegulars = 3;
     private const int MinAppearances = 3;
 
@@ -32,6 +36,9 @@ public sealed class ActivityProfileCommand(
 
     // Profiles make a lot of requests on a small server, so one at a time.
     private static readonly SemaphoreSlim OneAtATime = new(1, 1);
+
+    // Message history doesn't include nicknames. A new command object is created for each run, so this lasts one run.
+    private readonly Dictionary<ulong, string?> _nicknames = [];
 
     [DefaultMemberPermissions(GuildPermission.ModerateMembers)]
     [CommandContextType(InteractionContextType.Guild)]
@@ -98,7 +105,7 @@ public sealed class ActivityProfileCommand(
         }
 
         Dictionary<ulong, int> partners = [];
-        var profile = await ProfileAsync(userId, read.Posts, started + MemberBudget, partners, options);
+        var member = await ProfileAsync(userId, read.Posts, MemberPosts, started + MemberBudget, partners, options);
 
         List<ActivityProfile> regulars = [];
         foreach (var (regularId, _) in partners.Where(p => p.Value >= MinAppearances).OrderByDescending(p => p.Value).Take(MaxRegulars))
@@ -109,12 +116,12 @@ public sealed class ActivityProfileCommand(
             }
             if (await ActivityPostReader.ReadAsync(search => SearchAsync(search, options), regularId, RegularPosts, newest) is { Posts.Count: > 0 } regular)
             {
-                regulars.Add(await ProfileAsync(regularId, regular.Posts, started + TotalBudget, null, options));
+                regulars.Add((await ProfileAsync(regularId, regular.Posts, RegularChecked, started + TotalBudget, null, options)).All);
             }
         }
 
         var incomplete = read.StillIndexing || read.Posts.Count < Math.Min(read.Total, MemberPosts);
-        return ActivityFormatter.Format(userId, read.Total, incomplete, profile, regulars);
+        return ActivityFormatter.Format(userId, read.Total, incomplete, member, regulars);
     }
 
     private async Task<GuildMessageSearchData?> SearchAsync(SearchGuildMessages search, RequestOptions options)
@@ -131,24 +138,51 @@ public sealed class ActivityProfileCommand(
         return null;
     }
 
-    /// <summary>Checks every post with text against what came before it, as far as time allows. Adds the people the
-    /// posts answered to <paramref name="partners"/>.</summary>
-    private async Task<ActivityProfile> ProfileAsync(ulong userId, List<IMessage> posts, DateTimeOffset deadline, Dictionary<ulong, int>? partners, RequestOptions options)
+    /// <summary>Checks the newest posts with text against what came before them, as far as time allows. Adds the people
+    /// the posts answered to <paramref name="partners"/>.</summary>
+    private async Task<MemberProfile> ProfileAsync(ulong userId, List<IMessage> posts, int maxChecked, DateTimeOffset deadline, Dictionary<ulong, int>? partners, RequestOptions options)
     {
-        var withText = posts.Where(p => p.Source != MessageSource.System && !string.IsNullOrWhiteSpace(p.Content) && p.Channel is not null).ToList();
+        var withText = posts.Where(p => p.Source != MessageSource.System && !string.IsNullOrWhiteSpace(p.Content) && p.Channel is not null).Take(maxChecked).ToList();
         var pairs = await ActivityPostReader.PairWithPriorAsync(withText, post => FetchBeforeAsync(post, options), () => time.GetUtcNow() >= deadline);
 
+        await LookUpNicknamesAsync(pairs, userId, deadline, options);
+
         List<SampledPost> sample = [];
-        foreach (var (post, prior, isReply) in pairs)
+        foreach (var (post, prior, isReply, recent) in pairs)
         {
-            sample.Add(new SampledPost(post.Content, post.Timestamp, isReply, prior is null ? null : ToPrior(prior, userId)));
+            var others = recent.Where(m => m.Author.Id != userId).Select(m => ToPrior(m, userId)).ToList();
+            sample.Add(new SampledPost(post.Content, post.Timestamp, isReply, prior is null ? null : ToPrior(prior, userId), others, post.Type == MessageType.Reply));
             if (partners is not null && prior?.Author is { IsBot: false, IsWebhook: false } author && author.Id != userId)
             {
                 partners[author.Id] = partners.GetValueOrDefault(author.Id) + 1;
             }
         }
 
-        return ActivityAnalyzer.Analyze(posts.Count, posts.Count(p => p.EditedTimestamp is not null), sample);
+        return ActivityAnalyzer.AnalyzeMember(posts.Select(p => new PostStamp(p.Timestamp, p.EditedTimestamp is not null)).ToList(), sample);
+    }
+
+    /// <summary>Finds the server nickname of everyone who spoke near the posts, once each, as far as time allows.</summary>
+    private async Task LookUpNicknamesAsync(List<PostPair> pairs, ulong userId, DateTimeOffset deadline, RequestOptions options)
+    {
+        var speakers = pairs.SelectMany(p => p.Recent).Select(m => m.Author.Id).Where(id => id != userId).Distinct();
+        foreach (var id in speakers.Where(id => !_nicknames.ContainsKey(id)))
+        {
+            if (time.GetUtcNow() >= deadline)
+            {
+                return;
+            }
+
+            try
+            {
+                var member = await ((IGuild)Context.Guild).GetUserAsync(id, CacheMode.AllowDownload, options);
+                _nicknames[id] = member?.Nickname;
+            }
+            catch (HttpException ex) when (ex.HttpCode is System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.Forbidden)
+            {
+                // Someone who has left the server has no nickname to find.
+                _nicknames[id] = null;
+            }
+        }
     }
 
     /// <summary>The messages before a post, newest first, leaving out system messages (joins, pins).</summary>
@@ -163,8 +197,7 @@ public sealed class ActivityProfileCommand(
 
     private List<string> Names(IUser author)
     {
-        // History doesn't include nicknames, so this only finds them for members the bot has cached.
-        var nickname = (author as IGuildUser)?.Nickname ?? Context.Guild.GetUser(author.Id)?.Nickname;
+        var nickname = _nicknames.GetValueOrDefault(author.Id) ?? (author as IGuildUser)?.Nickname;
         return new[] { author.Username, author.GlobalName, nickname, author.Id.ToString() }.OfType<string>().ToList();
     }
 }

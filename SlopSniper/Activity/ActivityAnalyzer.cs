@@ -9,7 +9,17 @@ namespace SlopSniper.Activity;
 public sealed record PriorPost(bool Own, string Text, DateTimeOffset At, IReadOnlyList<string> AuthorNames);
 
 /// <summary>A post checked against its context. <see cref="Prior"/> is null when nothing came before it.</summary>
-public sealed record SampledPost(string Text, DateTimeOffset At, bool IsReply, PriorPost? Prior);
+/// <remarks><see cref="Recent"/> is what other people said shortly before, newest first.</remarks>
+public sealed record SampledPost(string Text, DateTimeOffset At, bool IsReply, PriorPost? Prior, IReadOnlyList<PriorPost> Recent, bool UsedReply);
+
+/// <summary>When a post was made and whether it was edited later.</summary>
+public sealed record PostStamp(DateTimeOffset At, bool Edited);
+
+/// <summary>Style counts for one stretch of a member's posts, starting at <see cref="From"/>.</summary>
+public sealed record ActivityPeriod(DateTimeOffset From, ActivityProfile Profile);
+
+/// <summary>A member's whole history, split so a recent change in style isn't averaged away.</summary>
+public sealed record MemberProfile(ActivityProfile All, ActivityProfile Recent, ActivityProfile Older, DateTimeOffset RecentFrom, IReadOnlyList<ActivityPeriod> Timeline);
 
 /// <summary>Counts for one member. Shares are worked out when formatting, so small samples stay visible.</summary>
 public sealed record ActivityProfile(
@@ -25,7 +35,14 @@ public sealed record ActivityProfile(
     int Named,
     int Echoed,
     int Emoji,
-    int Formula);
+    int Formula,
+    int? ActiveHours,
+    int? QuietHours,
+    double? BusyDayBreakHours,
+    int UsedReplies,
+    int Addressable,
+    int NameAndEmoji,
+    int BrokenMentions);
 
 /// <summary>Measures habits typical of a chatbot account: only ever answering, answering long messages faster than
 /// anyone types, and replying to a template. None of it proves anything alone, so it's only shown to moderators and
@@ -49,6 +66,21 @@ public static partial class ActivityAnalyzer
     private const int MinEchoWords = 3;
     private const double EchoShare = 0.4;
 
+    // Too few posts leave most hours empty whoever wrote them.
+    private const int MinPostsForHours = 50;
+
+    // A quarter of an even spread across 24 hours, so a rare late night doesn't make an hour count as active.
+    private const double QuietHourShare = 0.01;
+
+    private const int HoursInDay = 24;
+
+    // A day with fewer posts has long breaks whoever wrote them.
+    private const int MinBusyDayPosts = 8;
+
+    private const int RecentShareDivisor = 3;
+    private const int MaxTimelinePeriods = 6;
+    private const int MinPostsPerPeriod = 10;
+
     private static readonly FrozenSet<string> CommonWords = new[]
     {
         "the", "and", "but", "for", "are", "was", "were", "you", "your", "that", "this", "with", "have", "has", "had",
@@ -62,13 +94,73 @@ public static partial class ActivityAnalyzer
     [GeneratedRegex(@"<a?:\w+:\d+>$")]
     private static partial Regex CustomEmojiRegex();
 
-    public static ActivityProfile Analyze(int posts, int edited, IReadOnlyList<SampledPost> sample)
+    // Real mentions are stored as <@id>, so an @ in the text is one that never became a mention.
+    [GeneratedRegex(@"(?<![\w<@])@(?!(?:everyone|here)\b)[\p{L}\p{N}_.]{2,}|<@(?![!&]?\d+>)[^>]+>", RegexOptions.IgnoreCase)]
+    private static partial Regex BrokenMentionRegex();
+
+    /// <summary>Profiles a member's whole history, then their newest third and the rest separately.</summary>
+    public static MemberProfile AnalyzeMember(IReadOnlyList<PostStamp> posts, IReadOnlyList<SampledPost> sample)
+    {
+        var newestFirst = posts.OrderByDescending(p => p.At).ToList();
+        var recentFrom = newestFirst[Math.Max(1, newestFirst.Count / RecentShareDivisor) - 1].At;
+
+        return new MemberProfile(
+            AnalyzeStretch(posts, sample),
+            AnalyzeStretch(posts.Where(p => p.At >= recentFrom).ToList(), sample.Where(s => s.At >= recentFrom).ToList()),
+            AnalyzeStretch(posts.Where(p => p.At < recentFrom).ToList(), sample.Where(s => s.At < recentFrom).ToList()),
+            recentFrom,
+            BuildTimeline(sample));
+    }
+
+    private static ActivityProfile AnalyzeStretch(IReadOnlyList<PostStamp> posts, IReadOnlyList<SampledPost> sample) =>
+        Analyze(posts.Select(p => p.At).ToList(), posts.Count(p => p.Edited), sample);
+
+    /// <summary>Equal-sized stretches, oldest first, showing when a change in style began.</summary>
+    private static List<ActivityPeriod> BuildTimeline(IReadOnlyList<SampledPost> sample)
+    {
+        var periods = Math.Min(MaxTimelinePeriods, sample.Count / MinPostsPerPeriod);
+        if (periods < 2)
+        {
+            return [];
+        }
+
+        var oldestFirst = sample.OrderBy(s => s.At).ToList();
+        List<ActivityPeriod> timeline = [];
+        for (var period = 0; period < periods; period++)
+        {
+            var start = period * oldestFirst.Count / periods;
+            var end = (period + 1) * oldestFirst.Count / periods;
+            timeline.Add(new ActivityPeriod(oldestFirst[start].At, Analyze([], 0, oldestFirst[start..end])));
+        }
+        return timeline;
+    }
+
+    public static ActivityProfile Analyze(IReadOnlyList<DateTimeOffset> postTimes, int edited, IReadOnlyList<SampledPost> sample)
     {
         int started = 0, followUps = 0, responses = 0, fast = 0, named = 0, echoed = 0, emoji = 0, formula = 0;
+        int addressable = 0, nameAndEmoji = 0, broken = 0;
         List<double> speeds = [];
 
         foreach (var post in sample)
         {
+            broken += HasBrokenMention(post.Text) ? 1 : 0;
+
+            // Counted for any post with someone to talk to, including one after the member's own post: a run of
+            // comments aimed at different people is part of what this looks for.
+            if (post.Recent.Count > 0)
+            {
+                addressable++;
+                var target = post.Recent.FirstOrDefault(r => OpensWithName(post.Text, r.AuthorNames));
+                var hasName = target is not null;
+                var hasEcho = EchoesPrior(post.Text, (target ?? post.Recent[0]).Text);
+                var hasEmoji = EndsWithEmoji(post.Text);
+                named += hasName ? 1 : 0;
+                echoed += hasEcho ? 1 : 0;
+                emoji += hasEmoji ? 1 : 0;
+                nameAndEmoji += hasName && hasEmoji ? 1 : 0;
+                formula += hasName && hasEcho && hasEmoji ? 1 : 0;
+            }
+
             if (post.Prior is not { } prior || (!post.IsReply && post.At - prior.At > QuietGap))
             {
                 started++;
@@ -88,18 +180,64 @@ public static partial class ActivityAnalyzer
                 speeds.Add(speed);
                 fast += speed > MaxTypingCharsPerSecond ? 1 : 0;
             }
-
-            var hasName = OpensWithName(post.Text, prior.AuthorNames);
-            var hasEcho = EchoesPrior(post.Text, prior.Text);
-            var hasEmoji = EndsWithEmoji(post.Text);
-            named += hasName ? 1 : 0;
-            echoed += hasEcho ? 1 : 0;
-            emoji += hasEmoji ? 1 : 0;
-            formula += hasName && hasEcho && hasEmoji ? 1 : 0;
         }
 
-        return new ActivityProfile(posts, edited, sample.Count, started, followUps, responses, speeds.Count, fast,
-            Median(speeds), named, echoed, emoji, formula);
+        var (activeHours, quietHours, busyDayBreak) = MeasureHours(postTimes);
+        return new ActivityProfile(postTimes.Count, edited, sample.Count, started, followUps, responses, speeds.Count, fast,
+            Median(speeds), named, echoed, emoji, formula, activeHours, quietHours, busyDayBreak, sample.Count(p => p.UsedReply), addressable, nameAndEmoji, broken);
+    }
+
+    /// <summary>How much of the day a member posts in. The quiet stretch can wrap past midnight, so timezones don't
+    /// matter. People usually have one of several hours, for sleep, and an always-on account doesn't.</summary>
+    private static (int? Active, int? Quiet, double? BusyDayBreak) MeasureHours(IReadOnlyList<DateTimeOffset> times)
+    {
+        if (times.Count < MinPostsForHours)
+        {
+            return (null, null, null);
+        }
+
+        var counts = new int[HoursInDay];
+        foreach (var time in times)
+        {
+            counts[time.UtcDateTime.Hour]++;
+        }
+
+        var quietBelow = times.Count * QuietHourShare;
+        int longestQuiet = 0, run = 0;
+        for (var hour = 0; hour < HoursInDay * 2; hour++)
+        {
+            run = counts[hour % HoursInDay] < quietBelow ? run + 1 : 0;
+            longestQuiet = Math.Max(longestQuiet, run);
+        }
+
+        return (counts.Count(c => c >= quietBelow), Math.Min(longestQuiet, HoursInDay), MedianBusyDayBreak(times));
+    }
+
+    /// <summary>The typical longest break inside a 24-hour stretch with plenty of posts. Unlike the hour counts, a
+    /// changing schedule over months can't hide a real sleep break here.</summary>
+    private static double? MedianBusyDayBreak(IReadOnlyList<DateTimeOffset> times)
+    {
+        var sorted = times.Order().ToArray();
+        List<double> breaks = [];
+        for (var start = 0; start < sorted.Length; start++)
+        {
+            var end = sorted[start].AddHours(HoursInDay);
+            var last = sorted[start];
+            var longest = 0.0;
+            var posts = 1;
+            for (var next = start + 1; next < sorted.Length && sorted[next] < end; next++)
+            {
+                longest = Math.Max(longest, (sorted[next] - last).TotalHours);
+                last = sorted[next];
+                posts++;
+            }
+
+            if (posts >= MinBusyDayPosts)
+            {
+                breaks.Add(Math.Max(longest, (end - last).TotalHours));
+            }
+        }
+        return Median(breaks);
     }
 
     public static double? Median(IEnumerable<double> values)
@@ -135,6 +273,9 @@ public static partial class ActivityAnalyzer
         var words = Words(text).ToHashSet();
         return (double)priorWords.Count(words.Contains) / priorWords.Count >= EchoShare;
     }
+
+    /// <summary>Whether the post tried to mention someone in text that never became a real mention.</summary>
+    public static bool HasBrokenMention(string text) => BrokenMentionRegex().IsMatch(text);
 
     public static bool EndsWithEmoji(string text)
     {
