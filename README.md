@@ -16,6 +16,8 @@ Discord bot that checks posted images for OpenAI provenance signals (C2PA/SynthI
 
 `Debug scam check` (message context menu) - Show how the scam checks score a message, without acting. (Bot owner, user install)
 
+`Activity profile` (user context menu) - Compare how a member posts with the people they talk to, to spot chatbot accounts. Only you see the result. (Moderate Members)
+
 Scam alert buttons: Undo, Delete & time out, Not a scam. (Moderate Members)
 
 Permissions are enforced by the bot; Server Settings > Integrations can only restrict them.

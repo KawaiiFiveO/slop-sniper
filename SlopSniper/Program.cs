@@ -8,6 +8,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SlopSniper;
+using SlopSniper.Activity;
 using SlopSniper.Modules;
 using SlopSniper.Options;
 using SlopSniper.Provenance;
@@ -76,6 +77,7 @@ builder.Services.AddSingleton<Reporter>();
 builder.Services.AddSingleton<ImageDownloader>();
 builder.Services.AddSingleton(new CommandModule(typeof(SniperCommands), Global: false));
 builder.Services.AddSingleton(new CommandModule(typeof(ReloadCommand), Global: true));
+builder.Services.AddSingleton(new CommandModule(typeof(ActivityProfileCommand), Global: false));
 
 // Hosted services stop in reverse order: the scanner stops taking messages, then the modules' queues stop, then
 // the Discord client disconnects. So modules are added between the two.
