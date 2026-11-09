@@ -15,9 +15,6 @@ public sealed class ActivityProfileCommand(
     IHostApplicationLifetime lifetime,
     ILogger<ActivityProfileCommand> logger) : InteractionModuleBase<SocketInteractionContext>
 {
-    private const int LookbackDays = 90;
-    private const int PageSize = DiscordConfig.MaxGuildMessageSearchLimit;
-
     // Every sampled post costs a request for its context, so these set how long a profile takes.
     private const int MemberPosts = 500;
     private const int MemberSample = 60;
@@ -87,61 +84,34 @@ public sealed class ActivityProfileCommand(
 
     private async Task<string> BuildReplyAsync(ulong userId, RequestOptions options)
     {
-        var since = SnowflakeUtils.ToSnowflake(time.GetUtcNow() - TimeSpan.FromDays(LookbackDays));
-        if (await ReadPostsAsync(userId, MemberPosts, since, options) is not { } posts)
+        var newest = SnowflakeUtils.ToSnowflake(time.GetUtcNow());
+        var read = await ActivityPostReader.ReadAsync(search => SearchAsync(search, options), userId, MemberPosts, newest);
+        if (read is null)
         {
             return "Discord is still indexing this server's messages for search. Try again in a few minutes.";
         }
-        if (posts.Count == 0)
+
+        logger.LogInformation("Activity profile of {UserId}: read {Read} of {Total} posts, still indexing: {Indexing}.",
+            userId, read.Posts.Count, read.Total, read.StillIndexing);
+        if (read.Posts.Count == 0)
         {
-            return $"Found no posts from <@{userId}> in the last {LookbackDays} days in channels the bot can read.";
+            return $"Found no posts from <@{userId}> in channels the bot can read.";
         }
 
         Dictionary<ulong, int> partners = [];
-        var profile = await ProfileAsync(userId, posts, MemberSample, partners, options);
+        var profile = await ProfileAsync(userId, read.Posts, MemberSample, partners, options);
 
         List<ActivityProfile> regulars = [];
         foreach (var (regularId, _) in partners.Where(p => p.Value >= MinAppearances).OrderByDescending(p => p.Value).Take(MaxRegulars))
         {
-            if (await ReadPostsAsync(regularId, RegularPosts, since, options) is { Count: > 0 } regularPosts)
+            if (await ActivityPostReader.ReadAsync(search => SearchAsync(search, options), regularId, RegularPosts, newest) is { Posts.Count: > 0 } regular)
             {
-                regulars.Add(await ProfileAsync(regularId, regularPosts, RegularSample, null, options));
+                regulars.Add(await ProfileAsync(regularId, regular.Posts, RegularSample, null, options));
             }
         }
 
-        return ActivityFormatter.Format(userId, LookbackDays, profile, regulars);
-    }
-
-    /// <summary>Newest first, or null while Discord hasn't indexed the server yet.</summary>
-    private async Task<List<IMessage>?> ReadPostsAsync(ulong userId, int maxPosts, ulong since, RequestOptions options)
-    {
-        List<IMessage> posts = [];
-        Optional<ulong> before = default;
-        for (var page = 0; page < maxPosts / PageSize; page++)
-        {
-            var result = await SearchAsync(new SearchGuildMessages
-            {
-                AuthorIds = new Optional<IEnumerable<ulong>>([userId]),
-                Limit = PageSize,
-                MinMessageId = since,
-                MaxMessageId = before,
-                SortAlgorithm = SortAlgorithm.Timestamp,
-                SortDirection = SortDirection.Descending,
-                IncludeNsfw = true,
-            }, options);
-            if (result is null)
-            {
-                return page == 0 ? null : posts;
-            }
-            if (result.Messages.Count == 0)
-            {
-                break;
-            }
-
-            posts.AddRange(result.Messages.Where(m => m.Author.Id == userId));
-            before = result.Messages.Min(m => m.Id);
-        }
-        return posts;
+        var incomplete = read.StillIndexing || read.Posts.Count < Math.Min(read.Total, MemberPosts);
+        return ActivityFormatter.Format(userId, read.Total, incomplete, profile, regulars);
     }
 
     private async Task<GuildMessageSearchData?> SearchAsync(SearchGuildMessages search, RequestOptions options)

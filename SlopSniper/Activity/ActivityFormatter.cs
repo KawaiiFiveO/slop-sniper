@@ -27,12 +27,12 @@ public static class ActivityFormatter
         ("Edited posts", p => p.Edited, p => p.Posts),
     ];
 
-    public static string Format(ulong userId, int lookbackDays, ActivityProfile profile, IReadOnlyList<ActivityProfile> regulars)
+    public static string Format(ulong userId, int postsCounted, bool incomplete, ActivityProfile profile, IReadOnlyList<ActivityProfile> regulars)
     {
         var reply = new StringBuilder()
             .Append("**Activity profile of <@").Append(userId).Append(">**\n")
-            .Append("Read ").Append(profile.Posts).Append(" posts from the last ").Append(lookbackDays)
-            .Append(" days and compared ").Append(profile.Sampled).Append(" with the message before them.\n```\n")
+            .Append("Read ").Append(profile.Posts).Append(" of ").Append(Math.Max(postsCounted, profile.Posts))
+            .Append(" posts, newest first, and compared ").Append(profile.Sampled).Append(" with the message before them.\n```\n")
             .Append(string.Empty.PadRight(LabelWidth)).Append("This member".PadRight(ValueWidth)).Append("Regulars\n");
 
         foreach (var (label, count, total) in Rows)
@@ -53,11 +53,15 @@ public static class ActivityFormatter
         reply.Append(regulars.Count > 0
             ? $"Regulars: the median of {regulars.Count} {(regulars.Count == 1 ? "person" : "people")} this member talks to most.\n"
             : "No regulars to compare with: too few of these posts followed another member.\n");
+        if (incomplete)
+        {
+            reply.Append("Discord didn't return all the posts it counted. A later run may get more.\n");
+        }
         if (profile.Responses < MinResponses)
         {
             reply.Append("Only ").Append(profile.Responses).Append(" replies were found, so these numbers are rough.\n");
         }
-        return reply.Append("This is evidence to weigh, not proof. Someone writing through a translator or ChatGPT can look the same.").ToString();
+        return reply.ToString().TrimEnd();
     }
 
     private static double Share(int count, int total) => (double)count / total;
